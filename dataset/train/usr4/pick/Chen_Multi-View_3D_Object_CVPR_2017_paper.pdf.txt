@@ -1,0 +1,630 @@
+Multi-View 3D Object Detection Network for Autonomous Driving
+1Department of Electronic Engineering, Tsinghua University
+Abstract
+This paper aims at high-accuracy 3D object detection in
+autonomous driving scenario. We propose Multi-View 3D
+networks (MV3D), a sensory-fusion framework that takes
+both LIDAR point cloud and RGB images as input and pre-
+dicts oriented 3D bounding boxes. We encode the sparse
+3D point cloud with a compact multi-view representation.
+The network is composed of two subnetworks: one for 3D
+object proposal generation and another for multi-view fe-
+ature fusion. The proposal network generates 3D candi-
+date boxes efﬁciently from the bird’s eye view representa-
+tion of 3D point cloud. We design a deep fusion scheme
+to combine region-wise features from multiple views and
+enable interactions between intermediate layers of different
+paths. Experiments on the challenging KITTI benchmark
+show that our approach outperforms the state-of-the-art by
+around 25% and 30% AP on the tasks of 3D localization
+and 3D detection. In addition, for 2D detection, our appro-
+ach obtains 14.9% higher AP than the state-of-the-art on
+the hard data among the LIDAR-based methods.
+1. Introduction
+3D object detection plays an important role in the visual
+perception system of Autonomous driving cars. Modern
+self-driving cars are commonly equipped with multiple sen-
+sors, such as LIDAR and cameras. Laser scanners have the
+advantage of accurate depth information while cameras pre-
+serve much more detailed semantic information. The fusion
+of LIDAR point cloud and RGB images should be able to
+achieve higher performance and safty to self-driving cars.
+The focus of this paper is on 3D object detection utili-
+zing both LIDAR and image data. We aim at highly accu-
+rate 3D localization and recognition of objects in the road
+scene. Recent LIDAR-based methods place 3D windows
+in 3D voxel grids to score the point cloud [25, 6] or ap-
+ply convolutional networks to the front view point map in
+a dense box prediction scheme [16].
+Image-based met-
+hods [4, 3] typically ﬁrst generate 3D box proposals and
+then perform region-based recognition using the Fast R-
+CNN [9] pipeline. Methods based on LIDAR point cloud
+usually achieve more accurate 3D locations while image-
+based methods have higher accuracy in terms of 2D box
+[10, 7] combine LIDAR and images for 2D
+evaluation.
+detection by employing early or late fusion schemes. Ho-
+wever, for the task of 3D object detection, which is more
+challenging, a well-designed model is required to make use
+of the strength of multiple modalities.
+In this paper, we propose a Multi-View 3D object de-
+tection network (MV3D) which takes multimodal data as
+input and predicts the full 3D extent of objects in 3D space.
+The main idea for utilizing multimodal information is to
+perform region-based feature fusion. We ﬁrst propose a
+multi-view encoding scheme to obtain a compact and ef-
+fective representation for sparse 3D point cloud. As illus-
+trated in Fig. 1, the multi-view 3D detection network con-
+sists of two parts: a 3D Proposal Network and a Region-
+based Fusion Network. The 3D proposal network utilizes
+a bird’s eye view representation of point cloud to generate
+highly accurate 3D candidate boxes. The beneﬁt of 3D ob-
+ject proposals is that it can be projected to any views in
+3D space. The multi-view fusion network extracts region-
+wise features by projecting 3D proposals to the feature maps
+from mulitple views. We design a deep fusion approach
+to enable interactions of intermediate layers from different
+views. Combined with drop-path training [14] and auxili-
+ary loss, our approach shows superior performance over the
+early/late fusion scheme. Given the multi-view feature re-
+presentation, the network performs oriented 3D box regres-
+sion which predict accurate 3D location, size and orienta-
+tion of objects in 3D space.
+We evaluate our approach for the tasks of 3D propo-
+sal generation, 3D localization, 3D detection and 2D de-
+tection on the challenging KITTI [8] object detection ben-
+chmark. Experiments show that our 3D proposals signiﬁ-
+cantly outperforms recent 3D proposal methods 3DOP [4]
+and Mono3D [3]. In particular, with only 300 proposals,
+we obtain 99.1% and 91% 3D recall at Intersection-over-
+Union (IoU) threshold of 0.25 and 0.5, respectively. The
+3D Proposal Network
+Region-based Fusion Network
+LIDAR Bird view
+conv layers
+Objectness
+Classifier
+3D Box 
+Regressor
+LIDAR Front view
+conv layers
+conv layers
+ROI 
+pooling
+Proposals
+Bird view
+Proposals
+Front view 
+Proposals
+ROI 
+pooling
+Image
+Proposals
+ROI 
+pooling
+Multiclass
+Classifier
+3D Box 
+Regressor
+Figure 1: Multi-View 3D object detection network (MV3D): The network takes the bird’s eye view and front view of
+LIDAR point cloud as well as an image as input. It ﬁrst generates 3D object proposals from bird’s eye view map and project
+them to three views. A deep fusion network is used to combine region-wise features obtained via ROI pooling for each view.
+The fused features are used to jointly predict object class and do oriented 3D box regression.
+LIDAR-based variant of our approach achieves around 25%
+higher accuracy in 3D localization task and 30% higher 3D
+Average Precision (AP) in the task of 3D object detection. It
+also outperforms all other LIDAR-based methods by 14.9%
+AP for 2D detection on KITTI’s hard test set. When com-
+bined with images, further improvements are achieved over
+the LIDAR-based results.
+We brieﬂy review existing work on 3D object detection
+from point cloud and images, multimodal fusion methods
+and 3D object proposals.
+3D Object Detection in Point Cloud. Most existing met-
+hods encode 3D point cloud with voxel grid representation.
+Sliding Shapes [21] and Vote3D [25] apply SVM classi-
+fers on 3D grids encoded with geometry features. Some
+recently proposed methods [22, 6, 15] improve feature re-
+presentation with 3D convolutions.networks, which, howe-
+ver require expensive computations. In addition to the 3D
+voxel representation, VeloFCN [16] projects point cloud to
+the front view, obtaining a 2D point map. They apply a
+fully convolutional network on the 2D point map and pre-
+dict 3D boxes densely from the convolutional feature maps.
+[23, 17, 11] investigate volumetric and multi-view repre-
+sentation of point cloud for 3D object classiﬁcation. In this
+work, we encode 3D point cloud with multi-view feature
+maps, enabling region-based representation for multimodal
+fusion.
+3D Object Detection in Images.
+3DVP [27] introduces
+3D voxel patterns and employ a set of ACF detectors to
+do 2D detection and 3D pose estimation. 3DOP [4] recon-
+structs depth from stereo images and uses an energy mini-
+mization approach to generate 3D box proposals, which are
+fed to an R-CNN [9] pipeline for object recognition. While
+Mono3D [3] shares the same pipeline with 3DOP, it gene-
+rates 3D proposals from monocular images. [30, 31] intro-
+duces a detailed geometry representation of objects using
+3D wireframe models. To incorporate temporal informa-
+tion, some work[5, 20] combine structure from motion and
+ground estimation to lift 2D detection boxes to 3D bounding
+boxes. Image-based methods usually rely on accurate depth
+estimation or landmark detection. Our work shows how to
+incorporate LIDAR point cloud to improve 3D localization.
+Multimodal Fusion Only a few work exist that exploit
+multiple modalities of data in the context of autonomous
+driving.
+[10] combines images, depth and optical ﬂow
+using a mixture-of-experts framework for 2D pedestrian de-
+tection. [7] fuses RGB and depth images in the early stage
+and trains pose-based classiﬁers for 2D detection. In this
+paper, we design a deep fusion approach inspired by Frac-
+talNet [14] and Deeply-Fused Net [26].
+In FractalNet, a
+base module is iteratively repeated to construct a network
+with exponentially increasing paths. Similarly, [26] con-
+structs deeply-fused networks by combining shallow and
+deep subnetworks. Our network differs from them by using
+the same base network for each column and adding auxili-
+ary paths and losses for regularization.
+Height
+Distance
+Intensity
+Figure 2: Input features of the MV3D network.
+3D Object Proposals Similarly to 2D object propo-
+sals [24, 32, 2], 3D object proposal methods generate a
+small set of 3D candidate boxes in order to cover most
+of the objects in 3D space. To this end, 3DOP [4] de-
+signs some depth features in stereo point cloud to score a
+large set of 3D candidate boxes. Mono3D [3] exploits the
+ground plane prior and utilizes some segmentation featu-
+res to generate 3D proposals from a single image. Both
+3DOP and Mono3D use hand-crated features. Deep Sliding
+Shapes [22] exploits more powerful deep learning features.
+However, it operates on 3D voxel grids and uses compu-
+tationally expensive 3D convolutions. We propose a more
+efﬁcient approach by introducing a bird’s eye view repre-
+sentation of point cloud and employing 2D convolutions to
+generate accurate 3D proposals.
+The MV3D network takes a multi-view representation of
+3D point cloud and an image as input. It ﬁrst generates 3D
+object proposals from the bird’s eye view map and deeply
+fuses multi-view features via region-based representation.
+The fused features are used for category classiﬁcation and
+oriented 3D box regression.
+indicates the number of points in each cell. To normalize
+the feature, it is computed as min(1.0, log(N +1)
+log(64) ), where N
+is the number of points in the cell. Note that the intensity
+and density features are computed for the whole point cloud
+while the height feature is computed for M slices, thus in
+total the bird’s eye view map is encoded as (M +2)-channel
+features.
+Front View Representation. Front view representation
+provides complementary information to the bird’s eye view
+representation. As LIDAR point cloud is very sparse, pro-
+jecting it into the image plane results in a sparse 2D point
+map.
+Instead, we project it to a cylinder plane to gene-
+rate a dense front view map as in [16]. Given a 3D point
+p = (x, y, z), its coordinates pf v = (r, c) in the front view
+map can be computed using
+where ∆θ and ∆φ are the horizontal and vertical resolution
+of laser beams, respectively. We encode the front view map
+with three-channel features, which are height, distance and
+intensity, as visualized in Fig. 2.
+3.1. 3D Point Cloud Representation
+Existing work usually encodes 3D LIDAR point cloud
+into a 3D grid [25, 6] or a front view map [16]. While the 3D
+grid representation preserves most of the raw information
+of the point cloud, it usually requires much more complex
+computation for subsequent feature extraction. We propose
+a more compact representation by projecting 3D point cloud
+to the bird’s eye view and the front view. Fig. 2 visualizes
+the point cloud representation.
+Bird’s Eye View Representation. The bird’s eye view re-
+presentation is encoded by height, intensity and density. We
+discretize the projected point cloud into a 2D grid with re-
+solution of 0.1m. For each cell, the height feature is com-
+puted as the maximum height of the points in the cell. To
+encode more detailed height information, the point cloud is
+devided equally into M slices. A height map is computed
+for each slice, thus we obtain M height maps. The inten-
+sity feature is the reﬂectance value of the point which has
+the maximum height in each cell. The point cloud density
+Inspired by Region Proposal Network (RPN) which has
+become the key component of the state-of-the-art 2D ob-
+ject detectors [18], we ﬁrst design a network to generate 3D
+object proposals. We use the bird’s eye view map as in-
+put. In 3D object detection, The bird’s eye view map has
+several advantages over the front view/image plane. First,
+objects preserve physical sizes when projected to the bird’s
+eye view, thus having small size variance, which is not the
+case in the front view/image plane. Second, objects in the
+bird’s eye view occupy different space, thus avoiding the
+occlusion problem. Third, in the road scene, since objects
+typically lie on the ground plane and have small variance in
+vertical location, the bird’s eye view location is more cru-
+cial to obtaining accurate 3D bounding boxes. Therefore,
+using explicit bird’s eye view map as input makes the 3D
+location prediction more feasible.
+Given a bird’s eye view map. the network generates 3D
+box proposals from a set of 3D prior boxes. Each 3D box
+(a) Early Fusion
+Input
+Intermediate layers Output
+Concatenation
+Element-wise Mean
+Figure 3: Architectures of different fusion schemes: We
+instantiate the join nodes in early/late fusion with concate-
+nation operation, and deep fusion with element-wise mean
+operation.
+is parameterized by (x, y, z, l, w, h), which are the center
+and size (in meters) of the 3D box in LIDAR coordinate sy-
+stem. For each 3D prior box, the corresponding bird’s eye
+view anchor (xbv, ybv, lbv, wbv) can be obtained by discre-
+tizing (x, y, l, w). We design N 3D prior boxes by clus-
+tering ground truth object sizes in the training set. In the
+case of car detection, (l, w) of prior boxes takes values in
+{(3.9, 1.6), (1.0, 0.6)}, and the height h is set to 1.56m. By
+rotating the bird’s eye view anchors 90 degrees, we obtain
+N = 4 prior boxes. (x, y) is the varying positions in the
+bird’s eye view feature map, and z can be computed ba-
+sed on the camera height and object height. We do not do
+orientation regression in proposal generation, whereas we
+left it to the next prediction stage. The orientations of 3D
+boxes are restricted to {0◦, 90◦}, which are close to the ac-
+tual orientations of most road scene objects. This simpliﬁ-
+cation makes training of proposal regression easier.
+With a disretization resolution of 0.1m, object boxes in
+the bird’s eye view only occupy 5∼40 pixels. Detecting
+such extra-small objects is still a difﬁcult problem for deep
+networks. One possible solution is to use higher resolution
+of the input, which, however, will require much more com-
+putation. We opt for feature map upsampling as in [1]. We
+use 2x bilinear upsampling after the last convolution layer in
+the proposal network. In our implementation, the front-end
+convolutions only proceed three pooling operations, i.e., 8x
+downsampling. Therefore, combined with the 2x deconvo-
+lution, the feature map fed to the proposal network is 4x
+downsampled with respect to the bird’s eye view input.
+regressing
+sizes,
+regression
+are
+Figure 4: Training strategy for the Region-based Fusion
+Network: During training, the bottom three paths and los-
+ses are added to regularize the network. The auxiliary lay-
+ers share weights with the corresponding layers in the main
+network.
+computing the box regression loss. During training, we
+compute the IoU overlap between anchors and ground
+truth bird’s eye view boxes. An anchor is considered to
+be positive if its overlap is above 0.7, and negative if the
+overlap is below 0.5. Anchors with overlap in between are
+ignored.
+Since LIDAR point cloud is sparse, which results in
+many empty anchors, we remove all the empty anchors du-
+ring both training and testing to reduce computation. This
+can be achieved by computing an integral image over the
+point occupancy map.
+For each non-empty anchor at each position of the
+last convolution feature map, the network generates a 3D
+box. To reduce redundancy, we apply Non-Maximum Sup-
+pression (NMS) on the bird’s eye view boxes. Different
+from [22], we did not use 3D NMS because objects should
+occupy different space on the ground plane. We use IoU
+threshold of 0.7 for NMS. The top 2000 boxes are kept du-
+ring training, while in testing, we only use 300 boxes.
+We design a region-based fusion network to effectively
+combine features from multiple views and jointly classify
+object proposals and do oriented 3D box regression.
+Multi-View ROI Pooling. Since features from different
+views/modalities usually have different resolutions, we em-
+ploy ROI pooling [9] for each view to obtain feature vectors
+of the same length. Given the generated 3D proposals, we
+can project them to any views in the 3D space. In our case,
+we project them to three views, i.e., bird’s eye view (BV),
+front view (FV), and the image plane (RGB). Given a 3D
+proposal p3D, we obtain ROIs on each view via:
+3DOP
+Mono3D
+Ours
+3DOP
+Mono3D
+Ours
+IoU overlap threshold
+3DOP
+Mono3D
+Ours
+Figure 5: 3D bounding box Recall: From left to right: Recall vs IoU using 300 proposals, Recall vs #Proposals at IoU
+threshold of 0.25 and 0.5 respectively. Recall are evaluated on moderate data of KITTI validation set.
+where T3D→v denotes the tranformation functions from the
+LIDAR coordinate system to the bird’s eye view, front view,
+and the image plane, respectively. Given an input feature
+map x from the front-end network of each view, we obtain
+ﬁxed-length features fv via ROI pooling:
+Deep Fusion. To combine information from different fe-
+atures, prior work usually use early fusion [1] or late fu-
+sion [22, 12]. Inspired by [14, 26], we employ a deep fusion
+approach, which fuses multi-view features hierarchically. A
+comparison of the architectures of our deep fusion network
+and early/late fusion networks are shown in Fig. 3. For a
+network that has L layers, early fusion combines features
+{fv} from multiple views in the input stage:
+{Hl, l = 1, · · · , L} are feature transformation functions
+and ⊕ is a join operation (e.g., concatenation, summation).
+In contrast, late fusion uses seperate subnetworks to learn
+feature transformation independently and combines their
+outputs in the prediction stage:
+To enable more interactions among features of the inter-
+mediate layers from different views, we design the follo-
+wing deep fusion process:
+We use element-wise mean for the join operation for deep
+fusion since it is more ﬂexible when combined with drop-
+path training [14].
+In particular,
+Oriented 3D Box Regression Given the fusion featu-
+res of the multi-view network, we regress to oriented
+3D boxes from 3D proposals.
+the re-
+gression targets are the 8 corners of 3D boxes: t =
+(∆x0, · · · , ∆x7, ∆y0, · · · , ∆y7, ∆z0, · · · , ∆z7). They are
+encoded as the corner offsets normalized by the diagonal
+length of the proposal box. Despite such a 24-D vector
+representation is redundant in representing an oriented 3D
+box, we found that this encoding approach works better than
+the centers and sizes encoding approach. Note that our 3D
+box regression differs from [22] which regresses to axis-
+aligned 3D boxes. In our model, the object orientations can
+be computed from the predicted 3D box corners. We use a
+multi-task loss to jointly predict object categories and orien-
+ted 3D boxes. As in the proposal network, the category loss
+uses cross-entropy and the 3D box loss uses smooth ℓ1. Du-
+ring training, the positive/negative ROIs are determined ba-
+sed on the IoU overlap of brid’s eye view boxes. A 3D pro-
+posal is considered to be positive if the bird’s eye view IoU
+overlap is above 0.5, and negative otherwise. During infe-
+rence, we apply NMS on the 3D boxes after 3D bounding
+box regression. We project the 3D boxes to the bird’s eye
+view to compute their IoU overlap. We use IoU threshold
+of 0.05 to remove redundant boxes, which ensures objects
+can not occupy the same space in bird’s eye view.
+Network Regularization We employ two approaches to
+regularize the region-based fusion network: drop-path trai-
+ning [14] and auxiliary losses. For each iteration, we rand-
+omly choose to do global drop-path or local drop-path with
+a probability of 50%. If global drop-path is chosen, we se-
+lect a single view from the three views with equal probabi-
+lity. If local drop-path is chosen, paths input to each join
+node are randomly dropped with 50% probability. We en-
+sure that for each join node at least one input path is kept.
+To further strengthen the representation capability of each
+view, we add auxiliary paths and losses to the network. As
+shown in Fig. 4, the auxiliary paths have the same number
+of layers with the main network. Each layer in the auxili-
+ary paths shares weights with the corresponding layer in the
+Method
+Data
+Mono
+Stereo
+LIDAR
+LIDAR
+LIDAR+Mono
+Table 1: 3D localization performance: Average Precision (APloc) (in %) of bird’s eye view boxes on KITTI validation set.
+Method
+Data
+Mono
+Stereo
+LIDAR
+LIDAR
+LIDAR+Mono
+Table 2: 3D detection performance: Average Precision (AP3D) (in %) of 3D boxes on KITTI validation set.
+main network. We use the same multi-task loss, i.e. classi-
+ﬁcation loss plus 3D box regression loss, to back-propagate
+each auxiliary path. We weight all the losses including auxi-
+liary losses equally. The auxiliary paths are removed during
+inference.
+Network Architecture.
+In our multi-view network, each
+view has the same architecture. The base network is built on
+the 16-layer VGG net [19] with the following modiﬁcations:
+• Channels are reduced to half of the original network.
+• To handle extra-small objects, we use feature approx-
+imation to obtain high-resolution feature map. In par-
+ticular, we insert a 2x bilinear upsampling layer be-
+fore feeding the last convolution feature map to the
+3D Proposal Network. Similarly, we insert a 4x/4x/2x
+upsampling layer before the ROI pooling layer for the
+BV/FV/RGB branch.
+• We remove the 4th pooling operation in the original
+VGG network, thus the convolution parts of our net-
+work proceed 8x downsampling.
+• In the muti-view fusion network, we add an extra fully
+connected layer f c8 in addition to the original f c6 and
+f c7 layer.
+We initialize the parameters by sampling weights from the
+VGG-16 network pretrained on ImageNet. Despite our net-
+work has three branches, the number of parameters is about
+75% of the VGG-16 network. The inference time of the
+network for one image is around 0.36s on a Titan X GPU.
+Input Representation.
+In the case of KITTI, which pro-
+vides only annotations for objects in the front view (around
+90◦ ﬁeld of view), we use point cloud in the range of [0,
+70.4] × [-40, 40] meters. We also remove points that are
+out of the image boundaries when projected to the image
+plane. For bird’s eye view, the discretization resolution is
+Training. The network is trained in an end-to-end
+fashion. For each mini-batch we use 1 image and sample
+128 ROIs, roughly keeping 25% of the ROIs as positive. We
+train the network using SGD with a learning rate of 0.001
+for 100K iterations. Then we reduce the learning rate to
+0.0001 and train another 20K iterations.
+4. Experiments
+We evaluate our MV3D network on the challenging
+KITTI object detection benchmark [8]. The dataset provi-
+des 7,481 images for training and 7,518 images for testing.
+As the test server only evaluates 2D detection, we follow [4]
+to split the training data into training set and validation set,
+each containing roughly half of the whole training data. We
+conduct 3D box evaluation on the validation set. We fo-
+cus our experiments on the car category as KITTI provides
+enough car instances for our deep network based approach.
+Following the KITTI setting, we do evaluation on three dif-
+ﬁculty regimes: easy, moderate and hard.
+Metrics. We evaluate 3D object proposals using 3D box
+recall as the metric. Different from 2D box recall [13],
+we compute the IoU overlap of two cuboids. Note that the
+cuboids are not necessary to align with the axes, i.e., they
+could be oriented 3D boxes. In our evaluation, we set the
+3D IoU threshold to 0.25 and 0.5, respectively. For the ﬁ-
+nal 3D detection results, we use two metrics to measure the
+accuracy of 3D localization and 3D bounding box detection.
+For 3D localization, we project the 3D boxes to the ground
+plane (i.e., bird’s eye view) to obtain oriented bird’s eye
+Data
+Early Fusion
+Late Fusion
+Deep Fusion w/o aux. loss
+Deep Fusion w/ aux. loss
+Table 3: Comparison of different fusion approaches: Peformance are evaluated on KITTI validation set.
+Data
+Table 4: An ablation study of multi-view features: Peformance are evaluated on KITTI validation set.
+view boxes. We compute Average Precision (APloc) for the
+bird’s eye view boxes. For 3D bounding box detection, we
+also use the Average Precision (AP3D) metric to evaluate the
+full 3D bounding boxes. Note that both the bird’s eye view
+boxes and the 3D boxes are oriented, thus object orientati-
+ons are implicitly considered in these two metrics. We also
+evaluate the performance of 2D detection by projecting the
+3D boxes to the image plane. Average Preicision (AP2D) is
+also used as the metric. Following the KITTI convention,
+IoU threshold is set to 0.7 for 2D boxes.
+Baslines. As this work aims at 3D object detection, we
+mainly compare our approach to LIDAR-based methods
+VeloFCN [16], Vote3Deep [6] and Vote3D [25], as well
+as image-based methods 3DOP [4] and Mono3D [3]. For
+fair comparison, we focus on two variants of our appro-
+ach, i.e., the purely LIDAR-based variant which uses bird’s
+eye view and front view as input (BV+FV), and the mul-
+timodal variant which combines LIDAR and RGB data
+(BV+FV+RGB). For 3D box evaluation, we compare with
+VeloFCN, 3DOP and Mono3D since they provide results on
+the validation set. For Vote3Deep and Vote3D, which have
+no results publicly available, we only do comparison on 2D
+detection on the test set.
+3D Proposal Recall.
+3D box recall are shown in Fig. 5.
+We plot recall as a function of IoU threshold using 300 pro-
+posals. Our approach signiﬁcantly outperforms 3DOP [4]
+and Mono3D [3] across all the IoU thresholds. Fig. 5 also
+shows 3D recall as a function of the proposal numbers un-
+der IoU threshold of 0.25 and 0.5, respectively. Using only
+300 proposals, our approach obtains 99.1% recall at IoU
+threshold of 0.25 and 91% recall at IoU of 0.5. In contrast,
+when using IoU of 0.5, the maximum recall that 3DOP can
+achieve is only 73.9%. The large margin suggests the ad-
+vantage of our LIDAR-based approach over image-based
+methods.
+Method
+Data
+Mono
+Stereo
+Mono
+Mono
+Mono
+Mono
+Easy Mod. Hard
+LIDAR
+LIDAR
+LIDAR
+LIDAR
+Table 5: 2D detection performance: Average Precision
+(AP2D) (in %) for car category on KITTI test set. Methods
+in the ﬁrst group optimize 2D boxes directly while the se-
+cond group optimize 3D boxes.
+3D Localization. We use IoU threshold of 0.5 and 0.7 for
+3D localization evaluation. Table 1 shows APloc on KITTI
+validation set. As expected, all LIDAR-based approaches
+performs better than stereo-based method 3DOP [4] and
+monocular method Mono3D [3]. Among LIDAR-based ap-
+proaches, our method (BV+FV) outperforms VeloFCN [16]
+by ∼25% APloc under IoU threshold of 0.5. When using
+IoU=0.7 as the criteria, our improvement is even larger,
+achieving ∼45% higher APloc across easy, moderate and
+hard regimes. By combining with RGB images, our ap-
+proach is further improved. We visualize the localization
+results of some examples in Fig. 6.
+Ours
+Figure 6: Qualitative comparisons of 3D detection results: 3D Boxes are projected to the bird’s eye view and the images.
+Ablation Studies. We ﬁrst compare our deep fusion net-
+work with early/late fusion approaches. As commonly used
+in literature, the join operation is instantiated with conca-
+tenation in the early/late fusion schemes. As shown in Ta-
+ble 3, early and late fusion approaches have very similar
+performance. Without using auxiliary loss, the deep fusion
+method achieves ∼0.5% improvement over early and late
+fusion approaches. Adding auxiliary loss further improves
+deep fusion network by around 1%.
+To study the contributions of the features from diffe-
+rent views, we experiment with different combination of the
+bird’s eye view (BV), the front view (FV), and the RGB
+image (RGB). The 3D proposal network is the same for all
+the variants. Detailed comparisons are shown in Table 4. If
+using only a single view as input, the bird’s eye view fea-
+ture performs the best while the front view feature the worst.
+Combining any of the two views can always improve over
+individual views. This justiﬁes our assumption that features
+from different views are complementary. The best overal
+performance can be achieved when fusing features of all
+three views.
+2D Object Detection. We ﬁnally evaluate 2D detection
+performance on KITTI test set. Results are shown in Ta-
+ble 5. Among the LIDAR-based methods, our “BV+FV”
+approach outperforms the recently proposed Vote3Deep [6]
+method by 14.93% AP2D in the hard setting.
+In overall,
+image-based methods usually perform better than LIDAR-
+based methods in terms of 2D detection. This is due to the
+fact that image-based methods directly optimize 2D boxes
+while LIDAR-based methods optimize 3D boxes. Note that
+despite our method optimizes 3D boxes, it also obtains com-
+petitive results compared with the state-of-the-art 2D de-
+tection methods.
+Qualitative Results. As shown in Fig. 6, our appro-
+ach obtains much more accurate 3D locations, sizes and
+orientation of objects compared with stereo-based method
+3DOP [4] and LIDAR-based method VeloFCN [16]. We
+refer readers to the supplementary materials for many addi-
+tional results.
+5. Conclusion
+We have proposed a multi-view sensory-fusion model
+for 3D object detection in the road scene. Our model ta-
+kes advantage of both LIDAR point cloud and images. We
+align different modalities by generating 3D proposals and
+projecting them to multiple views for feature extraction.
+A region-based fusion network is presented to deeply fuse
+multi-view information and do oriented 3D box regression.
+Our approach signiﬁcantly outperforms existing LIDAR-
+based and image-based methods on tasks of 3D localiza-
+tion and 3D detection on KITTI benchmark [8]. Our 2D
+box results obtained from 3D detections also show com-
+petitive performance compared with the state-of-the-art 2D
+detection methods.
+References
+[10] A. Gonzalez, D. Vazquez, A. Lopez, and J. Amores. On-
+board object detection: Multicue, multimodal, and multiview
+random forest of local experts. In IEEE Transactions on Cy-
+bernetics, 2016. 1, 2
+makes for effective detection proposals? PAMI, 2015. 6
+[29] F. Yang, W. Choi, and Y. Lin. Exploit all the layers: Fast and
+accurate cnn object detector with scale dependent pooling
+and cascaded rejection classiﬁers. In CVPR, 2016. 7
+Frac-
+residuals.
+[15] B. Li. 3d fully convolutional network for vehicle detection
+Very deep convolu-
+In

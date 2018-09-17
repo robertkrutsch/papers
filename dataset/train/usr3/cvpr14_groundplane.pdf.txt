@@ -1,0 +1,687 @@
+Robust Scale Estimation in Real-Time Monocular SFM for Autonomous Driving
+Shiyu Song
+University of California, San Diego
+Manmohan Chandraker
+NEC Labs America, Cupertino, CA
+Abstract
+Scale drift is a crucial challenge for monocular au-
+tonomous driving to emulate the performance of stereo. This
+paper presents a real-time monocular SFM system that cor-
+rects for scale drift using a novel cue combination framework
+for ground plane estimation, yielding accuracy comparable to
+stereo over long driving sequences. Our ground plane estima-
+tion uses multiple cues like sparse features, dense inter-frame
+stereo and (when applicable) object detection. A data-driven
+mechanism is proposed to learn models from training data
+that relate observation covariances for each cue to error be-
+havior of its underlying variables. During testing, this allows
+per-frame adaptation of observation covariances based on
+relative conﬁdences inferred from visual data. Our frame-
+work signiﬁcantly boosts not only the accuracy of monocular
+self-localization, but also that of applications like object lo-
+calization that rely on the ground plane. Experiments on the
+KITTI dataset demonstrate the accuracy of our ground plane
+estimation, monocular SFM and object localization relative
+to ground truth, with detailed comparisons to prior art.
+1. Introduction
+Vision-based structure from motion (SFM) is rapidly gain-
+ing importance for autonomous driving applications. Monocu-
+lar SFM is attractive due to lower cost and calibration require-
+ments. However, unlike stereo, the lack of a ﬁxed baseline
+leads to scale drift, which is the main bottleneck that prevents
+monocular systems from attaining accuracy comparable to
+stereo. Robust monocular SFM that effectively counters scale
+drift in real-world road environments has signiﬁcant beneﬁts
+for mass-produced autonomous driving systems.
+A popular means to tackle scale drift is to estimate height
+of the camera above the ground plane. We present a data-
+driven framework for monocular ground plane estimation that
+achieves outstanding performance in real-world driving. This
+yields high accuracy and robustness for real-time monocular
+SFM over long distances, with results comparable to state-of-
+the-art stereo systems on public benchmark datasets. Further,
+we also show signiﬁcant beneﬁts for applications like 3D
+object localization that rely on an accurate ground plane.
+Prior monocular SFM works like [9, 20, 21] use sparse
+feature matching for ground plane estimation. However, in au-
+tonomous driving, the ground plane corresponds to a rapidly
+moving, low-textured road surface, which renders sole re-
+Figure 1. Applications of our ground plane estimation. [Top row:
+Monocular SFM] (a) Scale correction using our ground plane yields
+monocular self-localization close to ground truth over several kilo-
+meters of real-world driving. (b) Our cue combination signiﬁcantly
+outperforms prior works that also use the ground plane for scale cor-
+rection. (c) Our performance is comparable to stereo SFM. [Bottom
+row: Object localization] Accuracy of applications like 3D object
+localization that rely on the ground plane is also enhanced.
+liance on such feature matches impractical. We overcome
+this challenge with two innovations in Sec. 4 and 5. First, we
+incorporate cues from multiple methods and second, we com-
+bine them in a framework that accounts for their per-frame
+relative conﬁdences, using models learned from training data.
+Accordingly, in Sec. 4, we propose incorporating cues
+from dense stereo between successive frames and 2D detec-
+tion bounding boxes (for the object localization application).
+The dense stereo cue vastly improves camera self-localization,
+while the detection cue signiﬁcantly aids object localization.
+To combine cues, Sec. 5 presents a novel data-driven frame-
+work. During training, we learn models that relate the ob-
+servation covariance for each cue to error behaviors of its
+underlying variables, as observed in visual data. At test time,
+fusion of the covariances predicted by these models allows
+the contribution of each cue to adapt on a per-frame basis,
+reﬂecting belief in its relative accuracy.
+The signiﬁcant improvement in ground plane estimation
+using our framework is demonstrated in Sec. 6. In turn, this
+leads to excellent performance in applications like monocular
+SFM and 3D object localization. On the KITTI dataset [8],
+our real-time monocular SFM achieves rotation accuracy up
+to 0.0054◦ per frame, even outperforming several state-of-the-
+art stereo systems. Our translation error is a low 3.21%, which
+is also comparable to stereo and to the best of our knowledge,
+unmatched by other monocular systems. We also exhibit high
+robustness directly attributable to accurate scale correction.
+Further, we demonstrate the beneﬁts of our ground estimation
+for 3D object localization. Our work naturally complements
+tracking-by-detection frameworks to boost their localization
+accuracy – for instance, we achieve over 6% improvement in
+3D location error over the system of [1].
+To summarize, our main contributions are:
+• A novel data-driven framework that combines multiple
+cues for ground plane estimation using learned models to
+adaptively weight per-frame observation covariances.
+• Highly accurate, robust, scale-corrected and real-time
+monocular SFM with performance comparable to stereo.
+• Novel use of detection cues for ground estimation, which
+boosts 3D object localization accuracy.
+Stereo-based SFM systems routinely achieve high accu-
+racy in real-time [2,15]. Several monocular systems have also
+demonstrated good performance in smaller indoor environ-
+ments [3, 11, 12]. Successful large-scale monocular systems
+for autonomous navigation are less extant, primarily due to
+the challenge of scale drift. Strasdat et al. [22] propose a
+large-scale monocular system that handles scale drift with
+loop closure. However, autonomous driving requires real-
+time scale correction on a per-frame basis.
+Prior knowledge of the environment is used to counter
+scale drift in several monocular SFM systems, such as non-
+holonomic constraints for wheeled robots [19] or geometry
+of circular pipes [10]. Like ours, other systems also handle
+scale drift by estimating camera height above the ground
+plane [9, 20, 21]. However, they rely on triangulation or
+homography decomposition from feature matches that are
+noisy for low-textured road surfaces and do not provide uni-
+ﬁed frameworks for including multiple cues. In contrast, we
+achieve far superior results by combining cues from sparse
+features, plane-guided dense stereo and object detection, in
+a data-driven framework whose observation covariances are
+weighted by instantaneous visual data.
+To localize moving objects, Ozden et al. [16] and Kundu
+et al. [13] use simultaneous motion segmentation and SFM. A
+different approach is that of multi-target tracking frameworks
+that combine object detection with stereo [5] or monocular
+SFM [1,23]. Detection can handle farther objects and together
+with the ground plane, provides a cue to estimate object scales
+that are difﬁcult to resolve for traditional monocular SFM
+even with multiple segmented motions [17]. We note that the
+utility of our accurate ground plane estimation is demonstra-
+ble for any object tracking framework. Indeed, this aspect of
+Figure 2. Geometry of ground plane esti-
+mation and object localization. The camera
+height h is the distance from its principal
+point to the ground plane. The pitch angle
+is θ and n is the ground plane normal. Thus,
+the ground plane is deﬁned by (n(cid:62), h)(cid:62).
+our contribution is complementary to existing sophisticated
+localization frameworks like [1,23], as established in Sec. 6.4.
+In contrast to most of the above systems, we present strong
+monocular SFM results on publicly available real-world driv-
+ing benchmarks over several kilometers [8] and accurate lo-
+calization performance relative to ground truth.
+3. Background
+Notation We denote a vector in Rn as x = (x1,··· , xn)(cid:62).
+A matrix is denoted as X. A variable x in frame k of a
+sequence is denoted as xk.
+Monocular SFM Our contributions are demonstrable for
+any monocular SFM system – as a particular choice, we use
+the real-time system of [21]. It also uses the ground plane
+for scale correction, however, relies purely on sparse feature
+matching. We demonstrate a vast performance improvement
+by incorporating our novel cue combination framework.
+Ground Plane Geometry As shown in Fig. 2, the camera
+height (also called ground height) h is deﬁned as the distance
+from the principal center to the ground plane. Usually, the
+camera is not perfectly parallel to the ground plane and there
+exists a non-zero pitch angle θ. The ground height h and
+the unit normal vector n = (n1, n2, n3)(cid:62) deﬁne the ground
+plane. For a 3D point (X, Y, Z)T on the ground plane,
+Scale Correction in Monocular SFM Scale drift correc-
+tion is an integral component of monocular SFM. In practice,
+it is the single most important aspect that ensures accuracy.
+We estimate the height and orientation of the ground plane
+relative to the camera for scale correction.
+Under scale drift, any estimated length l is ambiguous up
+to a scale factor s = l/l∗, where l∗ is the ground truth length.
+The objective of scale correction is to compute s. Given the
+calibrated height of camera from ground h∗, computing the
+apparent height h yields the scale factor s = h/h∗. Then the
+camera translation t can be adjusted as tnew = t/s, thereby
+correcting the scale drift. In Section 4, we describe a novel,
+highly accurate method for estimating the ground height h and
+orientation n using an adaptive cue combination mechanism.
+Object Localization through Ground Plane Accurate es-
+timation of both ground height and orientation is crucial for
+3D object localization. Let K be the camera intrinsic cali-
+bration matrix. As [1, 5, 23], the bottom of a 2D bounding
+Similarly, the object height can also be obtained using the
+estimated ground plane and the 2D bounding box height.
+Given 2D object tracks, one may estimate best-ﬁt 3D
+bounding boxes. The object pitch and roll are determined
+by the ground plane (see Fig. 2). For a vehicle, the initial yaw
+angle is assumed to be its direction of motion and a prior is
+imposed on the ratio of its length and width. Given an initial
+position from (2), a 3D bounding box can be computed by
+minimizing the difference between its reprojection and the
+tracked 2D bounding box.
+We defer a detailed description of object localization to fu-
+ture work, while noting two points. First, an accurate ground
+plane is clearly the key to accurate monocular localization,
+regardless of the actual localization framework. Second, incor-
+porating cues from detection bounding boxes into the ground
+plane estimation constitutes an elegant feedback mechanism
+between SFM and object localization.
+Data Fusion with Kalman Filter To combine estimates
+from various methods, a natural framework is a Kalman ﬁlter:
+Suppose methods i = 1,··· , m are used to estimate the
+ground plane, with observation covariances Uj. Then, the
+fusion equations at time instant k are
+Meaningful estimation of Uk at every frame, with the cor-
+rectly proportional Uk
+i for each cue, is essential for principled
+cue combination. Traditionally, ﬁxed covariances are used to
+combine cues, which does not account for per-frame variation
+in their effectiveness across a video sequence. In contrast, in
+the following sections, we propose a data-driven mechanism
+to learn models to adapt per-frame covariances for each cue,
+based on error distributions of the underlying variables.
+4. Cues for Ground Plane Estimation
+We propose using multiple methods like triangulation
+of sparse feature matches, dense stereo between successive
+frames and object detection bounding boxes to estimate the
+ground plane. The cues provided by these methods are com-
+bined in a principled framework that acconts for their per-
+frame relative effectiveness. In this section, we describe the
+cues and the next section describes their combination.
+Plane-Guided Dense Stereo We assume that a region of
+interest (ROI) in the foreground (middle ﬁfth of the lower
+third of the image) corresponds to a planar ground. For a
+hypothesized value of {h, n} and relative camera pose {R, t}
+between frames k and k + 1, a per-pixel mapping can be
+computed using the homography matrix
+tn(cid:62).
+(6)
+Note that t differs from the true translation t∗ by an unknown
+scale drift factor, encoded in the h we wish to estimate. Pixels
+in frame k + 1 are mapped to frame k (subpixel accuracy
+is important for good performance) and the sum of absolute
+differences (SAD) is computed over bilinearly interpolated
+image intensities. With ρ = 1.5, a Nelder-Mead simplex
+routine is used to estimate the {h, n} that minimize:
+Note that the optimization only involves h, n1 and n3, since
+(cid:107)n(cid:107) = 1. Enforcing the norm constraint has marginal effect,
+since the calibration pitch is a good initialization and the cost
+function usually has a clear local minimum in its vicinity. The
+optimization requires about 10 ms per frame. The {h, n} that
+minimizes (7) is the estimated ground plane from stereo cue.
+Triangulated 3D Points Next, we consider matched sparse
+SIFT [14] descriptors between frames k and k + 1, computed
+within the above region of interest (we ﬁnd SIFT a better
+choice than ORB for the low-textured road and real-time per-
+formance is attainable for SIFT in the small ROI). To ﬁt a
+plane through the triangulated 3D points, one option is to
+estimate {h, n} using a 3-point RANSAC for plane-ﬁtting.
+However, in our experiments, better results are obtained using
+the method of [9], by assuming the camera pitch to be ﬁxed
+from calibration. For every triangulated 3D point, the height
+h is computed using (1). The height difference ∆hij is com-
+puted for every 3D point i with respect to every other point j.
+The estimated ground plane height is the height of the point i
+corresponding to the maximal score q, where
+Note: Prior works like [20, 21] decompose the homography
+G between frames to yield the camera height [6]. However, in
+practice, the decomposition is very sensitive to noise, which
+is a severe problem since the homography is computed using
+noisy feature matches from the low-textured road. Further,
+the fact that road regions may be mapped by a homography is
+already exploited by our plane-guided dense stereo.
+Object Detection Cues We can also use object detection
+bounding boxes as cues when they are available, for instance,
+within the object localization application. The ground plane
+pitch angle θ can be estimated from this cue. Recall that
+n3 = sin θ, for the ground normal n = (n1, n2, n3)(cid:62).
+From (2), given the 2D bounding box, we can compute the
+3D height hb of an object through the ground plane. Given a
+prior height ¯hb of the object, n3 is obtained by solving:
+The ground height h used in (2) is set to the calibration value
+to avoid incorporating SFM scale drift and n1 is set to 0 since
+it has negligible effect on object height.
+Note: Object bounding box cues provide us unique long dis-
+tance information, unlike dense stereo and 3D points cues that
+only focus on an ROI close to our vehicle. An inaccurate pitch
+angle can lead to large vertical errors for far objects. Thus,
+the 3D localization accuracy of far objects is signiﬁcantly
+improved by incorporating this cue, as shown in Sec. 6.4.
+5. Data-Driven Cue Combination
+We now propose a principled approach to combine the
+above cues while reﬂecting the per-frame relative accuracy of
+each. Naturally, the combination should be inﬂuenced by both
+the visual input at a particular frame and prior knowledge. We
+achieve this by learning models from training data to relate
+the observation covariance for each cue to error behaviors of
+its underlying variables. During testing, our learned models
+adapt each cue’s observation covariance on a per-frame basis.
+5.1. Training
+For the dense stereo and 3D points cues, we use the KITTI
+visual odometry dataset for training, consisting of F = 23201
+frames. Sequences 0 to 8 of the KITTI tracking dataset are
+used to train the object detection cue. To determine the ground
+truth h and n, we label regions of the image close to the
+camera that are road and ﬁt a plane to the associated 3D
+points from the provided Velodyne data. No labelled road
+regions are available or used during testing.
+Each method i described in Sec. 4 has a scoring function fi
+that can be evaluated for various positions of the ground plane
+variables π = {h, n}. The functions fi for stereo, 3D points
+and object cues are given by (7), (8) and (9), respectively.
+Then, Algorithm 1 is a general description of the training.
+Intuitively, the parameters ak
+i reﬂect belief in
+the effectiveness of cue i at frame k. Quantizing the parame-
+ters ak
+i from F training frames into L bins allows estimating
+i of model Ak
+Algorithm 1 Data-Driven Training for Cue Combination
+i. The model
+the variance of observation error at bin centers cl
+Ci then relates these variances, vl
+i, to the cue’s accuracy (rep-
+resented by quantized parameters cl
+i). Thus, at test time, for
+every frame, we can estimate the accuracy of each cue i based
+purely on visual data (that is, by computing ai) and use the
+model Ci to determine its observation variance.
+Now we describe the speciﬁcs for training the models A
+and C for each of dense stereo, 3D points and object cues. We
+will use the notation that i ∈ {s, p, d}, denoting the dense
+stereo, 3D points and object detection methods, respectively.
+The error behavior of dense stereo between two consecutive
+frames is characterized by variation in SAD scores between
+road regions related by the homography (6), as we indepen-
+dently vary each variable h, n1 and n3. The variance of this
+distribution of SAD scores represents the error behavior of
+the stereo cue with respect to its variables. Recall that the
+scoring function for stereo, fs, is given by (7). We assume
+that state variables are uncorrelated. Thus, we will learn three
+independent models corresponding to h, n1 and n3.
+Learning the model As For a training image k,
+let
+k to k + 1, according to (6) (note that R and t are already
+estimated by monocular SFM, up to scale). For each homog-
+raphy mapping, we compute the SAD score fs(h) using (7).
+A univariate Gaussian is now ﬁt to the distribution of fs(h).
+Its variance, ak
+s,h, captures the sharpness of the SAD distribu-
+tion, which reﬂects belief in accuracy of height h estimated
+from the dense stereo method at frame k. A similar procedure
+yields variances ak
+s,n3 corresponding to orientation
+variables. Example ﬁts are shown in Fig. 3. Referring to Algo-
+rithm 1 above, ak
+s,n3 are precisely the parameters
+Figure 3. Examples of 1D Gaussian ﬁts to estimate parameters ak
+s
+for h, n1 and n3 of the dense stereo method respectively.
+Figure 4. Histograms of errors ek
+s from dense stereo cue against the
+quantized accuracy parameters as of model As, for h, n1 and n3.
+Figure 5. Fitting a model Cs to relate observation variance vs to the
+belief in accuracy cs of dense stereo, for h, n1 and n3.
+s,h. The bin centers cl
+s,h = |(cid:98)hk − h∗
+s that indicate accuracy of the stereo cue at frame k.
+ak
+k|
+Learning the model Cs For frame k, let ek
+be the error in ground height, relative to ground truth. We
+s,h into L = 100 bins and consider
+quantize the parameters ak
+the resulting histogram of ek
+s,h are posi-
+tioned to match the density of ak
+s,h (that is, we distribute F/L
+errors ek
+s,h within each bin). A similar process is repreated for
+n1 and n3. The histograms for the KITTI dataset are shown
+s of Algorithm 1.
+in Fig. 4. We have now obtained the cl
+Next, we compute the variance vl
+s,h of the errors within
+each bin l, for l = 1,··· , L. This indicates the observation
+error variance. We now ﬁt a curve to the distribution of vs,h
+versus cs,h, which provides a model to relate observation
+variance in h to the effectiveness of dense stereo. The result
+for the KITTI dataset is shown in Fig. 5, where each data point
+represents a pair of observation error covariance vl
+s,h and
+parameter cl
+s,h. Empirically, we observe that a straight line
+sufﬁces to produce a good ﬁt. A similar process is repeated
+for n1 and n3. Thus, we have obtained models Cs (one each
+for h, n1 and n3) for the stereo method.
+5.1.2 3D Points
+Similar to dense stereo, the objective of training is again to
+ﬁnd a model that relates the observation covariance of the 3D
+points method to the error behavior of its underlying variables.
+Recall that the scoring function fp is given by (8).
+Learning the model Ap We observe that the score q re-
+turned by fp is directly an indicator of belief in accuracy of
+the ground plane estimated using the 3D points cue. Thus, for
+Figure 6.
+(a) Histogram
+of height error ep,h and cue
+accuracy ap,h. (b) Relating
+observation variance vp,h to
+expected accuracy cp,h.
+Algorithm 1, we may directly obtain the parameters ak
+p = qk,
+where qk is the optimal value of fp at frame k, without explic-
+itly learning a model Ap.
+Learning the model Cp The remaining procedure mirrors
+p be ground height estimated at
+frame k using 3D points, that is, the optimum for (8). The
+p,h is computed with respect to ground truth. The above
+error ek
+p,h are quantized into L = 100 bins centered at cl
+p,h and a
+ak
+p,h is constructed. A model
+histogram of observation errors ek
+Cp may now be ﬁt to relate the observation variances vl
+p,h at
+each bin to the corresponding accuracy parameter cl
+p,h. As
+shown in Fig. 6, a straight line ﬁt is again reasonable.
+5.1.3 Object Detection
+We assume that the detector provides several candidate bound-
+ing boxes and their respective scores (that is, bounding boxes
+before the nonmaximal suppression step of traditional detec-
+tors). A bounding box is represented by b = (x, y, w, hb)(cid:62),
+where x, y is its 2D position and w, hb are its width and height.
+The error behavior of detection is quantiﬁed by the variation
+of detection scores α with respect to bounding box b.
+Learning the model Ad Our model Ak
+d is a mixture of
+Gaussians. At each frame, we estimate 4 × 4 full rank covari-
+ance matrices Σm centered at µm, as:
+min
+(10)
+where mn = bn − µm, M is number of objects and N is
+the number of candidate bounding boxes (the dependence
+on k has been suppressed for convenience). Example ﬁtting
+results are shown Fig. 7. It is evident that the variation of
+noisy detector scores is well-captured by the model Ak
+d.
+Recall that the scoring function fd of (9) estimates n3.
+Thus, only the entries of Σm corresponding to y and hb are
+signiﬁcant for our application. Let σy and σhb be the corre-
+sponding diagonal entries of the Σm closest to the tracking 2D
+d = σyσhb
+box. We combine them into a single parameter, ak
+,
+σy+σhb
+which reﬂects our belief in the accuracy of this cue.
+Learning the model Cd The remaining procedure is simi-
+lar to that for the stereo and 3D points cues. The accuracy
+parameters ak
+d are quantized and relaed to the corresponding
+variances of observation errors, given by the fd of (9). The
+ﬁtted linear model Cd that relates observation variance of the
+detection cue to its expected accuracy is shown in Fig. 8.
+Figure 7. Examples of mixture of Gaussians ﬁts to detection scores.
+Note that our ﬁtting (red) closely reﬂects the variation in noisy
+detection scores (blue). Each peak corresponds to an object.
+Figure 8.
+(a) Histogram
+of n3 error and cue accu-
+racy ad,h. (b) Relating ob-
+servation variance vd,h to
+expected accuracy cd,h.
+During testing, at every frame k, we ﬁt a model Ak
+i cor-
+responding to each cue i ∈ {s, p, d} and determine its pa-
+rameters ak
+i that convey expected accuracy. Next, we use the
+models Ci to determine the observation variances.
+3, hk)(cid:62) at
+Dense Stereo The observation zk
+frame k is obtained by minimizing fs, given by (7). We
+ﬁt 1D Gaussians to the homography-mapped SAD scores to
+s,n3. Using the models Cs
+get the values of ak
+estimated in Fig. 5, we predict the corresponding variances
+s . The observation covariance for the dense stereo method
+vk
+is now available as Uk
+3D Points At frame k, the observation zk
+p is the estimated
+ground height h obtained from fp, given by (8). The value of
+qk obtained from (8) directly gives us the expected accuracy
+parameter ak
+p,h is estimated
+from the model Cp of Fig. 6. The observation covariance for
+this cue is now available as Uk
+p. The corresponding variance vk
+Object Detection At frame k, the observation zk,m
+is the
+ground pitch angle n3 obtained by minimizing fd, given by
+(9), for each object m = 1,··· , M. For each object m,
+we obtain the parameters ak,m
+after solving (10). Using
+the model Cd of Fig. 8, we predict the corresponding error
+variances vk,m
+. The observation covariances for this method
+are now given by Uk,m
+Fusion Finally, the adaptive covariance for frame k, Uk, is
+computed by combining Uk
+from each
+object m. Then, our adaptive ground plane estimate zk is
+computed by combining zk
+Thus, we have described a ground plane estimation method
+that uses models learned from training data to adapt the rela-
+tive importance of each cue – stereo, 3D points and detection
+bounding boxes – on a per-frame basis.
+Figure 9. Height error relative to ground truth over (left) Seq 2 and
+(right) Seq 5. The effectiveness of our data fusion is shown by less
+spikiness in the ﬁlter output and a far lower error.
+6. Experiments
+We present extensive evaluation on the KITTI dataset [8],
+which consists of nearly 50 km of driving in various condi-
+tions. Our experiments are performed on an Intel i7 laptop.
+The SFM modules occupy three CPU threads and the ground
+plane estimation occupies two threads. 3D object localization
+is demonstrated using object detection and tracked bounding
+boxes computed ofﬂine using [1, 18].
+6.1. Accuracy of Ground Plane Estimation
+In consideration of real-time performance, only the dense
+stereo and 3D points cues are used for monocular SFM. De-
+tection bounding box cues are used for the object localization
+application where they are available.
+Fig. 9 shows examples of error in ground plane height
+relative to ground truth using 3D points and stereo cues indi-
+vidually, as well as the output of our combination. Note that
+while individual methods are very noisy, our cue combination
+allows a much more accurate estimation than either.
+Next, we demonstrate the advantage of cue combination
+using the data-driven framework of Sec. 5 that uses adaptive
+covariances, as opposed to a traditional Kalman ﬁlter with
+ﬁxed covariances. For this experiment, the ﬁxed covariance
+for the Kalman ﬁlter is determined by the error variances
+of each variable over the entire training set (we verify by
+cross-validation that this is a good choice).
+In Fig. 10, using only sparse feature matches causes clearly
+poor performance (black curve). The dense stereo performs
+better (cyan curve). Including the additional dense stereo
+cue within a Kalman ﬁlter with ﬁxed covariances leads to an
+improvement (blue curve). However, using the training mech-
+anism of Sec. 5 to adjust per-frame observation covariances in
+accordance with the relative conﬁdence of each cue leads to a
+further reduction in error by nearly 1% (red curve). Fig. 10(b)
+shows that we achieve the correct scale at a rate of 75 – 100%
+across all sequences, far higher than the other methods.
+In particular, compare our output (red curves) to that of
+only 3D points (black curves). This represents the improve-
+ment by this paper over prior works like [9, 20, 21] that use
+only sparse feature matches from the road surface.
+(a) Height error
+(b) Success rate
+Figure 10. Error and robustness of our ground plane estimation.
+(a) Average error in ground plane estimation across Seq 0-10. (b)
+Percent number of frames where height error is less than 7%. Note
+that the error in our method is far lower and the robustness far higher
+than achievable by either method on its own.
+(a) Rotation error comparisons (b) Translation error comparisons
+Figure 11. Comparison with other SFM systems. Our system is
+labeled MLM-SFM, shown in solid red. Note that we nearly match
+even state-of-the-art stereo for rotation and compete well against
+stereo in translation as well. Note the wide improvement over other
+monocular systems. See KITTI webpage for complete details.
+system, overlaid with ground truth. Compare the accurate
+scale maintained by our system (a), as opposed to a method
+that uses only 3D points (b). This again shows the effec-
+tiveness of our data-driven cue combination, which leads to
+monocular SFM performance close to stereo (c).
+6.3. Monocular SFM on Hague Dataset
+We show additional results on the publicly available Hague
+dataset [4]. It consists of three sequences of varying lengths,
+from 600 m to 5 km. It is challenging due to low resolution
+images, as well as several obstacles due to crowded scenes
+and moving vehicles close to the camera. Accurate scale drift
+correction allows us to successfully complete such sequences,
+in contrast to prior monocular SFM systems. In the absence
+of ground truth, Table 2 reports ﬁgures for loop closure or
+end-point error relative to map information.
+Table 2. End-point errors for sequences in The Hague dataset.
+6.4. Accuracy of 3D Object Localization
+Table 1. Accuracy and robustness of monocular SFM that uses our
+cue-combined scale correction. The errors are averages for Seq
+0-10 in KITTI, computed over 50 trials to demonstrate robustness.
+Note that our rotation error is lower than stereo. Translation error is
+comparable to stereo and much lower than other monocular systems.
+6.2. Benchmark Monocular SFM on KITTI
+We now show the impact of our ground plane estima-
+tion for the monocular SFM. The SFM evaluation sequences
+in KITTI are 11-21, for which ground truth is not public.
+Our system’s performance is accessible at the KITTI evalua-
+tion website, under the name MLM-SFM1. Comparison with
+other systems is given by Fig. 11. Note that all the other sys-
+tems, except VISO2-M [9], are stereo, yet we achieve close
+to the best rotation accuracy. Our translation error is lower
+than several stereo systems and far lower than VISO2-M.
+Another important beneﬁt of our scale correction is en-
+hanced robustness. As demonstration, we run 50 trials of
+our system on Seq 0-10, as well as other stereo and monoc-
+ular systems VISO2-S and VISO2-M [9]. Errors relative to
+ground truth are computed using the metrics in [8] and the
+average errors are summarized in Table 1. Note our vast per-
+formance improvement over VISO2-M, a rotation error better
+than VISO2-S and translation error comparable to stereo.
+Fig. 1 shows recovered camera paths from our monocular
+1www.cvlibs.net/datasets/kitti/eval_odometry.php
+Now we demonstrate the beneﬁt of the adaptive ground
+plane estimation of Sec. 5 for 3D object localization. KITTI
+does not provide a localization benchmark, so we instead
+use the tracking training dataset to evaluate against ground
+truth. We use Seq 1-8 for training and Seq 9-20 for testing.
+The metric we use for evaluation is percentage error in object
+position. For illustration, we consider only the vehicle objects
+and divide them into “close” and “distant”, where distant
+objects are farther than 10m. We discard any objects that are
+not on the road. Candidate bounding boxes for training the
+object detection cue are obtained from [7].
+Fig. 12 compares object localization using a ground plane
+from our data-driven cue combination (red curve), as opposed
+to one estimated using ﬁxed covariances (blue), or one that
+is ﬁxed from calibration (black). The top row uses ground
+truth object tracks, while the bottom row uses tracks from the
+state-of-the-art tracker of [18]. For each case, observe the
+signiﬁcant improvement in localization using our cue com-
+bination. Also, from Figs. 12(b),(d), observe the signiﬁcant
+reduction in localization error by incorporating the detection
+cue for ground plane estimation for distant objects.
+Finally, we compare our localization results to those of
+Choi and Savarese [1]. We use the object tracking output
+of [1] provided on a few KITTI raw sequences and show
+in Table 3 that using our adaptive ground plane estimation
+yields a lower error. Note that the ground plane estimation
+of [1] suffers due to sole reliance on salient features on the
+road surface. This demonstrates how our framework for cue-
+combined ground plane estimation may complement existing
+localization systems to signiﬁcantly enhance their accuracy.
+plications. We demonstrate that the performance of real-time
+monocular SFM that uses our ground plane estimation is com-
+parable to stereo on real-world driving sequences. Further, our
+accurate ground plane easily beneﬁts existing 3D localization
+frameworks, as also demonstrated by our experiments.
+In future extension of this work, we will explore a deeper
+integration of ground plane and SFM cues with object detec-
+tion, to obtain accurate and real-time 3D multi-target tracking.
+Acknowledgments This research was conducted at NEC
+Labs America during the ﬁrst author’s internship in 2013.
+References
+[1] W. Choi and S. Savarese. Multi-target tracking in world coordinate
+with single, minimally calibrated camera. In ECCV, 2010.
+[4] G. Dubbelman and F. Groen. Bias reduction for stereo based motion
+estimation with applications to large scale odometry. In CVPR, 2009.
+[5] A. Ess, B. Leibe, K. Schindler, and L. Van Gool. Robust multiperson
+[6] O. D. Faugeras and F. Lustman. Motion and Structure From Motion in
+driving? The KITTI vision benchmark suite. In CVPR, 2012.
+[12] G. Klein and D. Murray. Improving the agility of keyframe-based
+SLAM with a smoothly moving monocular camera. In ICCV, 2011.
+[14] D. G. Lowe. Distinctive image features from scale-invariant keypoints.
+[18] H. Pirsiavash, D. Ramanan, and C. Fowlkes. Globally-optimal greedy
+algorithms for tracking a variable number of objects. In CVPR, 2011.
+[19] D. Scaramuzza, F. Fraundorfer, M. Pollefeys, and R. Siegwart. Absolute
+scale in structure from motion from a single vehicle mounted camera
+by exploiting nonholonomic constraints. In ICCV, 2009.
+Figure 12. Comparison of 3D object localization errors for calibrated
+ground, stereo cue only, ﬁxed covariance fusion and adaptive covari-
+ance fusion of stereo and detection cues. (Top row) Using object
+tracks from ground truth (Bottom row) Using object tracks from [18].
+Rrrors reduce signiﬁcantly for adaptive cue fusion, especially for
+distant object where detection cue is more useful.
+Seq
+Average
+Ours
+Table 3. Comparison with 3D object localization of [1]. Dense: using
+dense stereo cue for ground plane estimation. Fixed: combine cues
+in a traditional Kalman ﬁlter. Adapt: the cue combination of Sec. 5.
+We use the tracked 2D bounding boxes of [1]. Note the improvement
+by incorporating both dense stereo and detection cues. Also note the
+advantage of using our adaptive cue combination, that leads to over
+6% improvement in location error over the system of [1]
+Fig. 1 shows an example from our localization output.
+Note the accuracy of our 3D bounding boxes (red), even when
+the 2D tracking-by-detection output (cyan) is not accurate.
+7. Conclusion and Future Work
+We have demonstrated that accuracte ground plane esti-
+mation allows monocular vision-based systems to achieve
+performance similar to stereo. In particular, we have shown
+that it is beneﬁcial to include cues such as dense stereo and
+object bounding boxes for ground estimation, besides the
+traditional sparse features used in prior works. Further, we
+proposed a mechanism to combine those cues in a principled
+framework that reﬂects their per-frame relative conﬁdences,
+as well as prior knowledge from training data.
+Our robust and accurate scale correction is a signiﬁcant
+step in bridging the gap between monocular and stereo SFM.
+We believe this has great beneﬁts for autonomous driving ap-

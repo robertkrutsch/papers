@@ -1,0 +1,602 @@
+Boundary-aware Instance Segmentation
+1Australian National University & 2Data61/CSIRO ∗
+Mathieu Salzmann3
+3CVLab, EPFL, Switzerland
+Abstract
+We address the problem of instance-level semantic seg-
+mentation, which aims at jointly detecting, segmenting and
+classifying every individual object in an image. In this con-
+text, existing methods typically propose candidate objects,
+usually as bounding boxes, and directly predict a binary
+mask within each such proposal. As a consequence, they
+cannot recover from errors in the object candidate genera-
+tion process, such as too small or shifted boxes.
+In this paper, we introduce a novel object segment rep-
+resentation based on the distance transform of the object
+masks. We then design an object mask network (OMN) with
+a new residual-deconvolution architecture that infers such
+a representation and decodes it into the ﬁnal binary object
+mask. This allows us to predict masks that go beyond the
+scope of the bounding boxes and are thus robust to inaccu-
+rate object candidates. We integrate our OMN into a Mul-
+titask Network Cascade framework, and learn the result-
+ing boundary-aware instance segmentation (BAIS) network
+in an end-to-end manner. Our experiments on the PAS-
+CAL VOC 2012 and the Cityscapes datasets demonstrate
+the beneﬁts of our approach, which outperforms the state-
+of-the-art in both object proposal generation and instance
+segmentation.
+1. Introduction
+Instance-level semantic segmentation, which aims at
+jointly detecting, segmenting and classifying every individ-
+ual object in an image, has recently become a core challenge
+in scene understanding [5, 23, 9]. Unlike its category-level
+counterpart, instance segmentation provides detailed infor-
+mation about the location, shape and number of individual
+objects. As such, it has many applications in diverse areas,
+such as autonomous driving [35], personal robotics [12] and
+plant analytics [30].
+Existing approaches to multiclass instance segmentation
+typically rely on generic object proposals in the form of
+∗Data61/CSIRO is funded by the Australian Government as represented
+by the Department of Broadband, Communications and the Digital Econ-
+omy and the ARC through the ICT Centre of Excellence program.
+Figure 1. Traditional instance segmentation vs our boundary
+based representation. Left: Original image and ground-truth
+segmentation. Middle: Given a bounding box, traditional meth-
+ods directly predict a binary mask, whose extent is therefore lim-
+ited to that of the box and thus suffers from box inaccuracies.
+Right: We represent the object segment with a multi-valued map
+encoding the truncated minimum distance to the object boundary.
+This can be converted into a mask that goes beyond the bounding
+box, which makes our approach robust to box errors.
+bounding boxes. These proposals can be learned [14, 21, 8]
+or sampled by sliding windows [25, 6], and greatly facilitate
+the task of identifying the different instances, may they be
+from the same category or different ones. Object segmen-
+tation is then achieved by predicting a binary mask within
+each box proposal, which can then be classiﬁed into a se-
+mantic category. This approach to segmentation, however,
+makes these methods sensitive to the quality of the bound-
+ing boxes; they cannot recover from errors in the object pro-
+posal generation process, such as too small or shifted boxes.
+In this paper, we introduce a novel representation of ob-
+ject segments that is robust to errors in the bounding box
+proposals. To this end, we propose to model the shape of
+an object with a dense multi-valued map encoding, for ev-
+ery pixel in a box, its (truncated) minimum distance to the
+object boundary, or the fact that the pixel is outside the ob-
+ject. Object segmentation can then be achieved by convert-
+ing this multi-valued map into a binary mask via the inverse
+distance transform [3, 18]. In contrast to existing methods
+discussed above, and as illustrated in Fig. 1, the resulting
+mask is not restricted to lie inside the bounding box; even
+when the box covers only part of the object, the distances
+to the boundary in our representation may correspond to an
+object segment that goes beyond the box’s spatial extent.
+To exploit our new object representation, we design
+an object mask network (OMN) that, for each box pro-
+posal, ﬁrst predicts the corresponding pixel-wise multi-
+valued map, and then decodes it into the ﬁnal binary mask,
+potentially going beyond the box itself. In particular, we
+discretize the truncated distances and encode them using a
+binary vector. This translates the prediction of the multi-
+valued map to a pixel-wise labeling task, for which deep
+networks are highly effective, and facilitates decoding the
+map into a mask. The ﬁrst module of our network then
+produces multiple probability maps, each of which indi-
+cates the activation of one particular bit in this vector.
+We then pass these probability maps into a new residual-
+deconvolution network module that generates the ﬁnal bi-
+nary mask. Thanks to the deconvolution layers, our output
+is not restricted to lie inside the box, and our OMN is fully
+differentiable.
+To tackle instance-level semantic segmentation, we inte-
+grate our OMN into the Multitask Network Cascade frame-
+work of [8], by replacing the original binary mask pre-
+diction module. As our OMN is fully differentiable, we
+can learn the resulting instance-level semantic segmentation
+network in an end-to-end manner. Altogether, this yields
+a boundary-aware instance segmentation (BAIS) network
+that is robust to noisy object proposals.
+We demonstrate the effectiveness of our approach on
+PASCAL VOC 2012 [9] and the challenging Cityscapes [5]
+dataset. Our BAIS framework outperforms all the state-of-
+the-art methods on both datasets, by a considerable mar-
+gin in the regime of high IOUs. Furthermore, an evaluation
+of our OMN on the task of object proposal generation on
+the PASCAL VOC 2012 dataset reveals that it achieves per-
+formance comparable to or even better than state-of-the-art
+methods, such as DeepMask [25] and SharpMask [26].
+Over the years, much progress has been made on
+the task of category-level semantic segmentation, particu-
+larly since the advent of Deep Convolutional Neural Net-
+works (CNNs) [10, 24, 4]. Categorical labeling, however,
+fails to provide detailed annotations of individual objects,
+from which many applications could beneﬁt. By contrast,
+instance-level semantic segmentation produces information
+about the identity, location, shape and class label of each
+individual object.
+To simplify this challenging task, most existing methods
+ﬁrst rely on detecting individual objects, for which a de-
+tailed segmentation is then produced. The early instances
+of this approach [32, 16] typically used pre-trained class-
+speciﬁc object detectors. More recently, however, many
+methods have proposed to exploit generic object propos-
+als [1, 28], and postpone the classiﬁcation problem to later
+stages.
+In this context, [14] makes use of Fast-RCNN
+boxes [11] and builds a multi-stage pipeline to extract fea-
+tures, classify and segment the object. This framework was
+improved by the development of Hypercolumn features [15]
+and the use of a fully convolutional network (FCN) to en-
+code category-speciﬁc shape priors [21]. In [8], the Region
+Proposal Network of [28] was integrated into a multi-task
+network cascade (MNC) for instance semantic segmenta-
+tion. Ultimately, all these methods suffer from the fact that
+they predict a binary mask within the bounding box pro-
+posals, which are typically inaccurate. By contrast, here,
+we introduce a boundary-aware OMN that lets us predict
+instance segmentations that go beyond the box’s spatial ex-
+tent. We show that integrating this OMN in the MNC frame-
+work outperforms the state-of-the-art instance-level seman-
+tic segmentation techniques.
+Other methods have nonetheless proposed to bypass the
+object proposal step for instance-level segmentation. For
+example, the Proposal-free Network (PFN) of [22] predicts
+the number of instances and, at each pixel, a semantic label
+and the location of its enclosing bounding box. The results
+of this approach, however, strongly depend on the accu-
+racy of the predicted number of instances. By contrast, [36]
+proposed to identify the individual instances based on their
+depth ordering. This was further extended in [35] via a deep
+densely connected Markov Random Field.
+It is unclear,
+however, how this approach handles the case where mul-
+tiple instances are at roughly identical depths. To overcome
+this, the recent work of [33] uses an FCN to jointly predict
+depth, semantics and an instance-based direction encoding.
+This information is then used to generate instances via a
+template matching procedure. Unfortunately, this process
+involves a series of independent modules, which cannot be
+optimized jointly, thus yielding a potentially suboptimal so-
+lution. Finally, in [29], a recurrent neural network was pro-
+posed to segment an image instance-by-instance. This ap-
+proach, however, essentially assumes that all the instances
+observed in the image belong to the same class.
+Beyond instance-level semantic segmentation, many
+methods have been proposed to generate class-agnostic re-
+gion proposals [1, 34, 20]. The most recent such ap-
+proaches rely on deep architectures [25, 26]. In particular,
+the method of [6], in which an FCN computes a small set
+of instance-sensitive score maps that are assembled into ob-
+ject segment proposals, was shown to effectively improve
+instance-level semantic segmentation when incorporated in
+the MNC framework. Our experiments demonstrate that our
+OMN produces segments of a quality comparable to or even
+higher than these state-of-the-art methods. Furthermore, by
+integrating it in a complete instance-level semantic segmen-
+tation network, we also outperform the state-of-the-art on
+this task.
+Figure 2. Left: Truncated distance transform. Right: Our deconvolution-based shape-decoding network. Each deconvolution has a speciﬁc
+kernel size (ks), padding (p) and stride (s). Here, K represents the number of binary maps.
+3. Boundary-aware Segment Prediction
+where d(p, q) is the spatial, Euclidean distance between
+pixel p and q, (cid:100)x(cid:101) returns the integer nearest to but larger
+than x, and R is the truncation threshold, i.e., the largest dis-
+tance we want to represent. We then directly use D as our
+dense object representation. Fig. 2 (Left) illustrates such a
+dense map for one object.
+As an object representation,
+the pixel-wise map de-
+scribed above as several advantages over a binary mask that
+speciﬁes the presence or absence of an object of interest at
+each pixel. First, the value at a pixel gives us information
+about the location of the object boundary, even if the pixel
+belongs to the interior of the object. As such, our repre-
+sentation is robust to partial occlusions arising from inac-
+curate bounding boxes. Second, since we have a distance
+value for every pixel, this representation is redundant, and
+thus robust to some degree of noise in the pixel-wise map.
+Importantly, predicting such a representation can be formu-
+lated as a pixel-wise labeling task, for which deep networks
+have proven highly effective.
+To further facilitate this labeling task, we quantize the
+values in the pixel-wise map into K uniform bins. In other
+words, we encode the truncated distance for pixel p using a
+K-dimensional binary vector b(p) as
+where rn is the distance value corresponding to the n-th
+bin. By this one-hot encoding, we have now converted the
+multi-value pixel-wise map into a set of K binary pixel-
+wise maps. This allows us to translate the problem of pre-
+dicting the dense map to a set of pixel-wise binary classiﬁ-
+cation tasks, which are commonly, and often successfully,
+carried out by deep networks.
+Given the dense pixel-wise map of an object segment (or
+truly K binary maps), we can recover the complete object
+mask approximately by applying an inverse distance trans-
+form. Speciﬁcally, we construct the object mask by associ-
+ating each pixel with a binary disk of radius D(p). We then
+compute the object mask M by taking the union of all the
+disks. Let T (p, r) denote the disk of radius r at pixel p. The
+Our goal is to design an instance-level semantic segmen-
+tation method that is robust to the misalignment of initial
+bounding box proposals. To this end, we ﬁrst introduce a
+novel object mask representation capable of capturing the
+overall shape or exact boundaries of an object. This rep-
+resentation, based on the distance transform, allows us to
+infer the complete shape of an object segment even when
+only partial information is available. We then construct a
+deep network that, given an input image, uses this repre-
+sentation to generate generic object segments that can go
+beyond the boundaries of initial bounding boxes.
+Below, we ﬁrst describe our object mask representation
+and object mask network (OMN). In Section 4, we show
+how our network can be integrated in a Multistage Network
+Cascade [8] to learn an instance-level semantic segmenta-
+tion network in an end-to-end manner.
+3.1. Boundary-aware Mask Representation
+Given a window depicting a potentially partially-
+observed object, obtained from an image and a bounding
+box, we aim to produce a mask of the entire object. To
+this end, instead of directly inferring a binary mask, which
+would only represent the visible portion of the object, we
+propose to construct a pixel-wise, multi-valued map encod-
+ing the boundaries of the complete object by relying on the
+concept of distance transform [3]. In other words, the value
+at each pixel in our map represents either the distance to the
+nearest object boundary if the pixel is inside the object, or
+the fact that the pixel belongs to the background.
+With varying window sizes and object shapes, the dis-
+tance transform can produce a large range of different val-
+ues, which would lead to a less invariant shape representa-
+tion and complicate the training of our OMN in Section 3.2.
+Therefore, we normalize the windows to a common size and
+truncate the distance transform to obtain a restricted range
+of values. Speciﬁcally, let Q denote the set of pixels on the
+object boundary and outside the object. For every pixel p
+in the normalized window, we compute a truncated distance
+D(p) to Q as
+object mask can then be expressed as
+where ∗ denotes the convolution operator, and Bn is the bi-
+nary pixel-wise map for the n-th bin. Note that we make
+use of the property of the one-hot encoding in the deriva-
+tion. Interestingly, the resulting operation consists of a se-
+ries of convolutions, which will again become convenient
+when working with deep networks.
+The rightmost column in Fig. 1 illustrates the behavior of
+our representation. In the top image, the value at each pixel
+represents the truncated distance to the instance boundary
+inside the bounding box. Although it does not cover the
+entire object, converting this dense map into a binary mask,
+yields the complete instance mask shown at the bottom.
+3.2. Object Mask Network
+We now turn to the problem of exploiting our boundary-
+aware representation to produce a mask for every object in-
+stance in an input image. To this end, we design a deep
+neural network that predicts K boundary-aware dense bi-
+nary maps for every box in a set of bounding box proposals
+and decodes them into a full object mask via Eq. 3. In prac-
+tice, we use the Region Proposal Network (RPN) [28] to
+generate the initial bounding box proposals. For each one
+of them, we perform a Region-of-Interest (RoI) warping of
+its features and pass the result to our network. This network
+consists of two modules described below.
+Given the RoI warped features of one bounding box as
+input, the ﬁrst module in our network predicts the K bi-
+nary masks encoding our (approximate) truncated distance
+transform. Speciﬁcally, for the n-th binary mask , we use a
+fully connected layer with a sigmoid activation function to
+predict a pixel-wise probability map that approximates Bn.
+Given the K probability maps, we design a new resid-
+ual deconvolution network module to decode them into a
+binary object mask. Our network structure is based on
+the observation that the morphology operator in Eq. 3 can
+be implemented as a series of deconvolutions with ﬁxed
+weights but different kernel and padding sizes, as illustrated
+in Fig. 2 (Right). We then approximate the union operator
+with a series of weighted summation layers followed by a
+sigmoid activation function. The weights in the summa-
+tion layers are learned during training. To accommodate for
+the different sizes of the deconvolution ﬁlters, we upsample
+the output of the deconvolution corresponding to a smaller
+value of rn in the network before each weighted summa-
+tion. We use a ﬁxed stride value of K for this purpose.
+Our OMN is fully differentiable, and the output of the
+decoding module can be directly compared to the ground
+truth at a high resolution using a cross-entropy loss. This
+allows us to train our OMN in an end-to-end fashion, in-
+cluding the initial RPN, or, as discussed in Section 4, to
+integrate it with a classiﬁcation module to perform instance-
+level semantic segmentation.
+4. Learning Instance Segmentation
+We now introduce our approach to tackling instance-
+level semantic segmentation with our OMN. To this end, we
+construct a Boundary-Aware Instance Segmentation (BAIS)
+network by integrating our object mask network into a Mul-
+tistage Network Cascade (MNC) [8]. Since our OMN mod-
+ule is differentiable, we can train the entire instance seg-
+mentation network in an end-to-end manner. Below, we ﬁrst
+describe the overall network architecture, and then discuss
+our end-to-end training procedure and inference at test time.
+4.1. BAIS Network
+Our boundary-aware instance segmentation network fol-
+lows a structure similar to that of the MNC. Speciﬁcally,
+our segmentation network consists of three sub-networks,
+corresponding to the tasks of bounding box proposal gen-
+eration, object mask prediction and object classiﬁcation.
+The ﬁrst module consists of a deep CNN (in practice, the
+VGG16 [31] architecture) to extract a feature representa-
+tion from an input image, followed by an RPN [28], which
+generates a set of bounding box proposals. After RoI warp-
+ing, we pass each proposal through our OMN to produce
+a segment mask. Finally, as in the original MNC network,
+mask features are computed by using the predicted mask
+in a feature masking layer and concatenated with bound-
+ing box features. The resulting representation is then fed
+into the third sub-network, which consists of a single fully-
+connected layer for classiﬁcation and bounding-box regres-
+sion. The overall architecture of our BAIS network is illus-
+trated in Fig. 3.
+Multi-stage Boundary-aware Segmentation Network.
+Following the strategy of [8], we extend the BAIS network
+described above, which can be thought of as a 3-stage cas-
+cade, to a 5-stage cascade. The idea, here, is to reﬁne the
+initial set of bounding box proposals, and thus the predicted
+segments, based on the output of our OMN. As illustrated
+in Fig. 3 (Right), the ﬁrst three stages consist of the model
+described above, that is the VGG16 convolutional layers,
+RPN, OMN, classiﬁcation module and bounding-box pre-
+diction. We then make use of the prediction offset generated
+by the bounding-box regression part of the third stage to re-
+ﬁne the initial boxes. These new boxes act as input, via RoI
+warping, to the fourth-stage, which corresponds to a second
+OMN. Its output is then used in the last stage in conjunction
+Figure 3. Left: Detailed architecture of our boundary-aware instance segmentation network. An input image ﬁrst goes through a series
+of convolutional layers, followed by an RPN to generate bounding box proposals. After RoI warping, each proposal passes through our
+OMN to obtained a binary mask that can go beyond the box’s spatial extent. Mask features are then extracted and used in conjunction
+with bounding-box features for classiﬁcation purpose. During training, our model makes use of a multi-task loss encoding bounding box,
+segmentation and classiﬁcation errors. Right: 5-stage BAIS network. The ﬁrst three stages correspond to the model on the left. The
+ﬁve-stage model then concatenates an additional OMN and classiﬁcation module to these three stages. The second OMN takes as input
+the classiﬁcation score and reﬁned box from the previous stage, and outputs a new segmentation with a new score obtained via the second
+classiﬁcation module. The weights of the OMN and classiﬁcation modules in both stages are shared.
+with the reﬁned boxes for classiﬁcation purpose. In this 5-
+stage cascade, the weights of the two OMN and of the two
+classiﬁcation modules are shared.
+4.2. Network Learning and Inference
+and a class-speciﬁc non-maximum suppression is applied
+with an IoU threshold of 0.5. Finally, we apply the in-mask
+voting scheme of [8] to each category independently to fur-
+ther reﬁne the instance segmentations.
+Our BAIS network is fully differentiable, and we there-
+fore train it in an end-to-end manner. To this end, we use a
+multi-task loss function to account for bounding box, object
+mask and classiﬁcation errors. Speciﬁcally, we use the soft-
+max loss for the RPN and for classiﬁcation, and the binary
+cross-entropy loss for the OMN. In our ﬁve-stage cascade,
+the bounding box and mask losses are computed after the
+third and ﬁfth stages, and we use the smooth L1 loss for
+bounding-box regression.
+We minimize the resulting multi-task, multi-stage loss
+over all parameters jointly using stochastic gradient descent
+(SGD). Following [8, 6, 11], we rely on min-batches of 8
+images. As in [8, 28, 11], we resize the images such that
+the shorter side has 600 pixels. The VGG16 network in
+our ﬁrst module was pre-trained on ImageNet. The other
+weights are initialized randomly from a zero-mean Gaus-
+sian distribution with std 0.01. We then train our model for
+20k iterations with a learning rate of 0.001, and 5k iterations
+with a reduced learning rate of 0.0001.
+The ﬁrst module in our network ﬁrst generates ∼12k
+bounding boxes, which are pruned via non-maximum sup-
+pression (NMS). As in [8], we use an NMS threshold of
+0.7, and ﬁnally keep the top 300 bounding box proposals.
+In our OMN, we use K = 5 probability maps to encode
+the (approximate) truncated distance transform. After de-
+coding these maps via Eq. 3, we make use of a threshold of
+0.4 to obtain a binary mask. This mask is then used to pool
+the features, and we ﬁnally obtain the semantic label via the
+classiﬁcation module.
+At test time, our BAIS network takes an input image and
+ﬁrst computes the convolutional feature maps. The RPN
+module then generates 300 bounding box proposals and
+our OMN module predicts the corresponding object masks.
+These masks are categorized according to the class scores
+5. Experiments
+In this section, we demonstrate the effectiveness of our
+method on instance-level semantic segmentation and seg-
+ment proposal generation. We ﬁrst discuss the former,
+which is the main focus of this work, and then turn to the
+latter. In both cases, we compare our approach to the state-
+of-the-art methods in each task.
+Datasets and setup. To evaluate our approach, we make
+use of two challenging, standard datasets with multiple in-
+stances from a variety of object classes, i.e., Pascal VOC
+2012 and Cityscapes.
+The Pascal VOC 2012 dataset [9] comprises 20 ob-
+ject classes with instance-level ground-truth annotations for
+5623 training images and 5732 validation images. We used
+the instance segmentations of [13] for training and valida-
+tion. We used all the training images to learn our model,
+but, following the protocols used in [14, 15, 7, 8, 6], used
+only the validation dataset for evaluation. Following stan-
+dard practice, we report the mean Average Precision (mAP)
+using IoU thresholds of 0.5 and 0.7 for instance semantic
+segmentation, and the Average Recall (AR) for different
+number and sizes of boxes for segment proposal generation.
+The Cityscapes dataset [5] consists of 9 object categories
+for instance-level semantic labeling. This dataset is very
+challenging since each image can contain a much larger
+number of instances of each class than in Pascal VOC, most
+of which are very small.
+It comprises 2975 training im-
+ages from 18 cities, 500 validation images from 3 cities
+and 1525 test images from 6 cities. We only used the train-
+ing dataset for training, and the test dataset to evaluate our
+method’s performance on the online test-server. Following
+the Cityscapes dataset guidelines, we computed the average
+precision (AP) for each class by averaging it across a range
+of overlap thresholds. We report the mean average precision
+(mAP) using an IoU threshold of 0.5, as well as mAP100m
+and mAP50m, where the evaluation is restricted to objects
+within 100 meters and 50 meters, respectively.
+5.1. Instance-level Semantic Segmentation
+We ﬁrst present our results on the task of instance-level
+semantic segmentation, which is the main focus of this pa-
+per. We report results on the two datasets discussed above.
+In both cases, we restricted the number of proposals to 300.
+For our 5-stage model, this means 300 after the ﬁrst RPN
+and 300 after bounding-box reﬁnement.
+Let us ﬁrst compare the results of our Boundary-aware In-
+stance Segmentation (BAIS) network with the state-of-the-
+art approaches on Pascal VOC 2012. These baselines in-
+clude the SDS framework of [14], the Hypercolumn repre-
+sentation of [15], the InstanceFCN method of [6] and the
+MNC framework of [8]. In addition to this, we also report
+the results obtained by a Python re-implementation of the
+method in [8], which we refer to as MCN-new. The results
+of this comparison are provided in Table 1. Note that our
+approach outperforms all the baselines, by a considerable
+margin in the case of a high IOU threshold. Note also that
+our approach is competitive in terms of runtime.
+Impor-
+tantly, the comparison with BAIS-inside BBox, which re-
+stricts our masks to the spatial extent of the bounding boxes
+clearly evidences the importance of allowing the masks to
+go beyond the boxes’ extent.
+Following the evaluation of MNC in [8], we also study
+the inﬂuence of the number of stages in our model. We
+therefore learned different versions of our model using ei-
+ther our three-stage or ﬁve-stage cascade. At test time, be-
+cause of parameter sharing across the stages, both versions
+are tested following a 5-stage procedure. The results of
+these different training strategies, for both MNC and our
+approach, are shown in Table 2. Note that, while our model
+trained with ﬁve-stages achieves the best results, our three-
+stage model still outperforms the two MNC baselines.
+Table 1. Instance-level semantic segmentation on Pascal VOC
+2012. Comparison of our method with state-of-the-art baselines.
+The results of [14, 15] are reproduced from [8].
+Table 2. Inﬂuence of the number of stages during training.
+Whether trained using 3 stages or 5, our approach outperforms
+both MNC baselines.
+A detailed comparison with MNC [8] including results
+for all the classes is provided in the supplementary material.
+We now turn to the Cityscapes dataset. In Table 3, we ﬁrst
+report the results obtained from the online evaluation server
+on the test data, which is not publicly available. Note that
+our approach outperforms all the baselines signiﬁcantly on
+all the metrics. In Table 4, we provide a detailed comparison
+of our approach and the best performing baseline (DWT) in
+terms of AP(100m) and AP(50m), respectively. Note that
+we outperform this method on most classes.
+Additionally, we also compare our approach with MNC-
+new on the validation data. In this case, both models were
+trained using the training data only. For MCN, we used the
+same image size, RPN batch size, learning rate and number
+of iterations as for our model. Both models were trained
+using 5 stages. Table 5 shows that, again, our model out-
+performs this baseline, thus demonstrating the beneﬁts of
+allowing the masks to go beyond the box proposals.
+Cityscapes (test)
+Instance-level Segmentation of Vehicles by Deep Contours [17]
+R-CNN + MCG convex hull [5]
+Pixel-level Encoding for Instance Segmentation [33]
+RecAttend [27]
+InstanceCut [19]
+DWT [2]
+BAIS - full (ours)
+Table 3. Instance-level semantic segmentation on Cityscapes. We compare our method with the state-of-the-art baselines on the
+Cityscapes test set. These results were obtained from the online evaluation server.
+Cityscapes (test)
+DWT
+BAIS - full (ours)
+Cityscapes (test)
+DWT
+BAIS - full (ours)
+bicycle
+Table 4. Detailed comparison with DTW: Top: AP(50m), Bottom: AP(100m). Note that our approach outperforms this baseline on all
+the classes except truck for the Cityscapes test dataset.
+Cityscapes (val)
+Table 5. Comparison with MNC-new on the Cityscapes validation data. Note that our approach outperforms this baseline, thus showing
+the importance of allowing the masks to go beyond the box proposals.
+In Fig. 4, we provide some qualitative results of our ap-
+proach on Cityscapes. Note that we obtain detailed and
+accurate segmentations, even in the presence of many in-
+stances in the same image. Some failure cases are shown in
+Fig. 5. These failures typically correspond to one instance
+being broken into several ones.
+5.2. Segment Proposal Generation
+As a second set of experiments, we evaluate the effec-
+tiveness of our object mask network (OMN) at generat-
+ing high-quality segment proposals. To this end, we made
+use of the 5732 Pascal VOC 2012 validation images with
+ground-truth from [13], and compare our approach with the
+state-of-the-art segmentation proposal generation methods
+according to the criteria of [14, 23]. In particular, we re-
+port the results of MCG [1], Deep-Mask [25] and Sharp-
+Mask [26] using the publicly available pre-computed seg-
+mentation proposals. We also report the results of MNC by
+reproducing them from [8], since these values were slightly
+better than those obtained from the publicly available seg-
+ments. For our method, since the masks extend beyond the
+bounding box, the scores coming from the RPN, which cor-
+respond to the boxes, are ill-suited. We therefore learned
+a scoring function to re-rank our proposals. For the com-
+parison to be fair, we also learned a similar scoring func-
+tion for the MNC proposals. We refer to this baseline as
+MNC+score.
+The results of our comparison are provided in Table 6.
+Our approach yields state-of-the-art results when consid-
+ering 10 or 100 proposals. For 1000, SharpMask yields
+slightly better AR than us. Note, however, that, in prac-
+tice, it is not always possible to handle 1000 proposals in
+later processing stages, and many instance-level segmenta-
+tion methods only consider 100 or 300, which is the regime
+where our approach performs best. In Fig. 6, we report re-
+call vs IOU threshold for all methods. Interestingly, even for
+Table 6. Evaluation of our OMN on the PASCAL VOC 2012
+validation set. We compare our method with state-of-the-art seg-
+mentation proposal baselines according to the criteria of [14, 23].
+Note that our approach outperforms the state-of-the-art methods
+for the top 10 and 100 segmentation proposals, which correspond
+to the most common scenarios when later processing is involved,
+e.g., instance level segmentation.
+1000 segmentation proposals, our results outperform most
+of the baselines at high IOU thresholds. We refer the reader
+to the supplementary material for a comparison of the meth-
+ods across different object sizes.
+6. Conclusion
+In this paper, we have introduced a distance transform-
+based mask representation that allows us to predict instance
+segmentations beyond the limits of initial bounding boxes.
+We have then shown how to infer and decode this repre-
+sentation with a fully-differentiable Object Mask Network
+(OMN) relying on a residual-deconvolutional architecture.
+We have then employed this OMN to develop a Boundary-
+Aware Instance Segmentation (BAIS) network. Our exper-
+iments on Pascal VOC 2012 and Cityscapes have demon-
+strated that our BAIS network outperforms the state-of-the-
+art instance-level semantic segmentation methods.
+In the
+future, we intend to replace the VGG16 network we rely
+on with deeper architectures, such as residual networks, to
+further improve the accuracy of our framework.
+Figure 4. Qualitative results on Cityscapes. From left to right, we show the input image, our instance level segmentations and the
+segmentations projected onto the image with class labels. Note that our segmentations are accurate despite the presence of many instances.
+Figure 5. Failure cases. The typical failures of our approach correspond to cases where one instance is broken into multiple ones.
+Figure 6. Recall v.s. IoU threshold on Pascal VOC 2012. The curves were generated using the highest-scoring 10, 100 and 1000
+segmentation proposals, respectively. In each plot, the solid line corresponds to our OMN results. Note that we outperform the baselines
+when using the top 10 and 100 proposals. For 1000, our approach still yields state-of-the-art results at high IoU thresholds.
+[3] G. Borgefors. Distance transformations in digital images.
+Computer vision, graphics and image processing, 1986. 1, 3
+[4] L. C. Chen, G. Papandreou, I. Kokkinos, K. Murphy, and
+A. L. Yuille. Semantic image segmentation with deep con-
+volutional nets and fully connected crfs. In ICLR, 2015. 2
+[17] R. M. Jan van den Brand, Matthias Ochs. Instance-level seg-
+mentation of vehicles using deep contours. In Workshop on
+Computer Vision Technologies for Smart Vehicle, in ACCV,
+2016. 6
+[18] R. Kimmel, N. Kiryati, and A. M. Bruckstein. Sub-pixel
+distance maps and weighted distance transforms. Journal of
+Mathematical Imaging and Vision, 1996. 1

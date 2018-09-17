@@ -1,0 +1,599 @@
+Secrets of Optical Flow Estimation and Their Principles
+Deqing Sun
+Brown University
+Stefan Roth
+TU Darmstadt
+Michael J. Black
+Brown University
+Abstract
+The accuracy of optical ﬂow estimation algorithms has
+been improving steadily as evidenced by results on the
+Middlebury optical ﬂow benchmark. The typical formula-
+tion, however, has changed little since the work of Horn
+and Schunck. We attempt to uncover what has made re-
+cent advances possible through a thorough analysis of how
+the objective function, the optimization method, and mod-
+ern implementation practices inﬂuence accuracy. We dis-
+cover that “classical” ﬂow formulations perform surpris-
+ingly well when combined with modern optimization and
+implementation techniques. Moreover, we ﬁnd that while
+median ﬁltering of intermediate ﬂow ﬁelds during optimiza-
+tion is a key to recent performance gains, it leads to higher
+energy solutions. To understand the principles behind this
+phenomenon, we derive a new objective that formalizes the
+median ﬁltering heuristic. This objective includes a non-
+local term that robustly integrates ﬂow estimates over large
+spatial neighborhoods. By modifying this new term to in-
+clude information about ﬂow and image boundaries we de-
+velop a method that ranks at the top of the Middlebury
+benchmark.
+1. Introduction
+The ﬁeld of optical ﬂow estimation is making steady
+progress as evidenced by the increasing accuracy of cur-
+rent methods on the Middlebury optical ﬂow benchmark
+[6]. After nearly 30 years of research, these methods have
+obtained an impressive level of reliability and accuracy
+[33, 34, 35, 40]. But what has led to this progress? The
+majority of today’s methods strongly resemble the original
+formulation of Horn and Schunck (HS) [18]. They combine
+a data term that assumes constancy of some image property
+with a spatial term that models how the ﬂow is expected
+to vary across the image. An objective function combin-
+ing these two terms is then optimized. Given that this basic
+structure is unchanged since HS, what has enabled the per-
+formance gains of modern approaches?
+The paper has three parts. In the ﬁrst, we perform an ex-
+tensive study of current optical ﬂow methods and models.
+The most accurate methods on the Middlebury ﬂow dataset
+make different choices about how to model the objective
+function, how to approximate this model to make it com-
+putationally tractable, and how to optimize it. Since most
+published methods change all of these properties at once,
+it can be difﬁcult to know which choices are most impor-
+tant. To address this, we deﬁne a baseline algorithm that
+is “classical”, in that it is a direct descendant of the original
+HS formulation, and then systematically vary the model and
+method using different techniques from the art. The results
+are surprising. We ﬁnd that only a small number of key
+choices produce statistically signiﬁcant improvements and
+that they can be combined into a very simple method that
+achieves accuracies near the state of the art. More impor-
+tantly, our analysis reveals what makes current ﬂow meth-
+ods work so well.
+Part two examines the principles behind this success. We
+ﬁnd that one algorithmic choice produces the most signiﬁ-
+cant improvements: applying a median ﬁlter to intermedi-
+ate ﬂow values during incremental estimation and warping
+[33, 34]. While this heuristic improves the accuracy of the
+recovered ﬂow ﬁelds, it actually increases the energy of the
+objective function. This suggests that what is being opti-
+mized is actually a new and different objective. Using ob-
+servations about median ﬁltering and L1 energy minimiza-
+tion from Li and Osher [23], we formulate a new non-local
+term that is added to the original, classical objective. This
+new term goes beyond standard local (pairwise) smoothness
+to robustly integrate information over large spatial neigh-
+borhoods. We show that minimizing this new energy ap-
+proximates the original optimization with the heuristic me-
+dian ﬁltering step. Note, however, that the new objective
+falls outside our deﬁnition of classical methods.
+Finally, once the median ﬁltering heuristic is formulated
+as a non-local term in the objective, we immediately recog-
+nize how to modify and improve it. In part three we show
+how information about image structure and ﬂow boundaries
+can be incorporated into a weighted version of the non-local
+term to prevent over-smoothing across boundaries. By in-
+corporating structure from the image, this weighted version
+does not suffer from some of the errors produced by median
+ﬁltering. At the time of publication (March 2010), the re-
+sulting approach is ranked 1st in both angular and end-point
+errors in the Middlebury evaluation.
+In summary, the contributions of this paper are to (1) an-
+alyze current ﬂow models and methods to understand which
+design choices matter; (2) formulate and compare several
+classical objectives descended from HS using modern meth-
+ods; (3) formalize one of the key heuristics and derive a new
+objective function that includes a non-local term; (4) mod-
+ify this new objective to produce a state-of-the-art method.
+In doing this, we provide a “recipe” for others studying op-
+tical ﬂow that can guide their design choices. Finally, to en-
+able comparison and further innovation, we provide a public
+MATLAB implementation [1].
+2. Previous Work
+It is important to separately analyze the contributions of
+the objective function that deﬁnes the problem (the model)
+and the optimization algorithm and implementation used to
+minimize it (the method). The HS formulation, for example,
+has long been thought to be highly inaccurate. Barron et al.
+[7] reported an average angular error (AAE) of ~ 30 degrees
+on the “Yosemite” sequence. This confounds the objective
+function with the particular optimization method proposed
+by Horn and Schunck1. When optimized with today’s meth-
+ods, the HS objective achieves surprisingly competitive re-
+sults despite the expected over-smoothing and sensitivity to
+outliers.
+Models: The global formulation of optical ﬂow intro-
+duced by Horn and Schunck [18] relies on both brightness
+constancy and spatial smoothness assumptions, but suffers
+from the fact that the quadratic formulation is not robust
+to outliers. Black and Anandan [10] addressed this by re-
+placing the quadratic error function with a robust formula-
+tion. Subsequently, many different robust functions have
+been explored [12, 22, 31] and it remains unclear which is
+best. We refer to all these spatially-discrete formulations
+derived from HS as “classical.” We systematically explore
+variations in the formulation and optimization of these ap-
+proaches. The surprise is that the classical model, appropri-
+ately implemented, remains very competitive.
+There are many formulations beyond the classical ones
+that we do not consider here. Signiﬁcant ones use oriented
+smoothness [25, 31, 33, 40], rigidity constraints [32, 33],
+or image segmentation [9, 21, 41, 37]. While they deserve
+similar careful consideration, we expect many of our con-
+clusions to carry forward. Note that one can select among a
+set of models for a given sequence [4], instead of ﬁnding a
+“best” model for all the sequences.
+Methods: Many of the implementation details that are
+thought to be important date back to the early days of op-
+1They noted that the correct way to optimize their objective is by solv-
+ing a system of linear equations as is common today. This was impractical
+on the computers of the day so they used a heuristic method.
+tical ﬂow. Current best practices include coarse-to-ﬁne es-
+timation to deal with large motions [8, 13], texture decom-
+position [32, 34] or high-order ﬁlter constancy [3, 12, 16,
+22, 40] to reduce the inﬂuence of lighting changes, bicubic
+interpolation-based warping [22, 34], temporal averaging of
+image derivatives [17, 34], graduated non-convexity [11] to
+minimize non-convex energies [10, 31], and median ﬁlter-
+ing after each incremental estimation step to remove outliers
+[34].
+This median ﬁltering heuristic is of particular interest as
+it makes non-robust methods more robust and improves the
+accuracy of all methods we tested. The effect on the objec-
+tive function and the underlying reason for its success have
+not previously been analyzed. Least median squares estima-
+tion can be used to robustly reject outliers in ﬂow estimation
+[5], but previous work has focused on the data term.
+Related to median ﬁltering, and our new non-local term,
+is the use of bilateral ﬁltering to prevent smoothing across
+motion boundaries [36]. The approach separates a varia-
+tional method into two ﬁltering update stages, and replaces
+the original anisotropic diffusion process with multi-cue
+driven bilateral ﬁltering. As with median ﬁltering, the bi-
+lateral ﬁltering step changes the original energy function.
+Models that are formulated with an L1 robust penalty
+are often coupled with specialized total variation (TV) op-
+timization methods [39]. Here we focus on generic opti-
+mization methods that can apply to any model and ﬁnd they
+perform as well as reported results for specialized methods.
+Despite recent algorithmic advances, there is a lack of
+publicly available, easy to use, and accurate ﬂow estimation
+software. The GPU4Vision project [2] has made a substan-
+tial effort to change this and provides executable ﬁles for
+several accurate methods [32, 33, 34, 35]. The dependence
+on the GPU and the lack of source code are limitations. We
+hope that our public MATLAB code will not only help in un-
+derstanding the “secrets” of optical ﬂow, but also let others
+exploit optical ﬂow as a useful tool in computer vision and
+related ﬁelds.
+3. Classical Models
+We write the “classical” optical ﬂow objective function
+in its spatially discrete form as
+In the remainder of this section we deﬁne a baseline
+method using several techniques from the literature. This
+is not the “best” method, but includes modern techniques
+and will be used for comparison. We only brieﬂy describe
+the main choices, which are explored in more detail in the
+following section and the cited references, especially [30].
+Quantitative results are presented throughout the remain-
+der of the text. In all cases we report the average end-point
+error (EPE) on the Middlebury training and test sets, de-
+pending on the experiment. Given the extensive nature of
+the evaluation, only average results are presented in the
+main body, while the details for each individual sequence
+are given in [30].
+To gain robustness against lighting changes, we follow
+[34] and apply the Rudin-Osher-Fatemi (ROF) structure
+texture decomposition method [28] to pre-process the in-
+put sequences and linearly combine the texture and struc-
+ture components (in the proportion 20:1). The parameters
+are set according to [34].
+Optimization is performed using a standard incremental
+multi-resolution technique (e.g. [10, 13]) to estimate ﬂow
+ﬁelds with large displacements. The optical ﬂow estimated
+at a coarse level is used to warp the second image toward
+the ﬁrst at the next ﬁner level, and a ﬂow increment is cal-
+culated between the ﬁrst image and the warped second im-
+age. The standard deviation of the Gaussian anti-aliasing
+ﬁlter is set to be
+, where d denotes the downsampling
+factor. Each level is recursively downsampled from its near-
+est lower level. In building the pyramid, the downsampling
+factor is not critical as pointed out in the next section and
+here we use the settings in [31], which uses a factor of 0:8
+in the ﬁnal stages of the optimization. We adaptively de-
+termine the number of pyramid levels so that the top level
+has a width or height of around 20 to 30 pixels. At each
+pyramid level, we perform 10 warping steps to compute the
+ﬂow increment.
+At each warping step, we linearize the data term, which
+i;j),
+involves computing terms of the type @
+where @=@x denotes the partial derivative in the horizon-
+tal direction, uk and vk denote the current ﬂow estimate at
+iteration k. As suggested in [34], we compute the deriva-
+tives of the second image using the 5-point derivative ﬁlter
+12[(cid:0)1 8 0 (cid:0)8 1], and warp the second image and its deriva-
+1
+tives toward the ﬁrst using the current ﬂow estimate by bicu-
+bic interpolation. We then compute the spatial derivatives of
+Table 1. Models. Average rank and end-point error (EPE) on the
+Middlebury test set using different penalty functions. Two current
+methods are included for comparison.
+the ﬁrst image, average with the warped derivatives of the
+second image (c.f . [17]), and use this in place of @I2
+@x . For
+pixels moving out of the image boundaries, we set both their
+corresponding temporal and spatial derivatives to zero. Af-
+ter each warping step, we apply a 5 (cid:2) 5 median ﬁlter to the
+newly computed ﬂow ﬁeld to remove outliers [34].
+For
+the Charbonnier
+(Classic-C) and Lorentzian
+(Classic-L) penalty function, we use a graduated non-
+convexity (GNC) scheme [11] as described in [31] that lin-
+early combines a quadratic objective with a robust objective
+in varying proportions, from fully quadratic to fully robust.
+Unlike [31], a single regularization weight (cid:21) is used for both
+the quadratic and the robust objective functions.
+The regularization parameter (cid:21) is selected among a set of
+candidate values to achieve the best average end-point error
+(EPE) on the Middlebury training set. For the Charbonnier
+penalty function, the candidate set is [1; 3; 5; 8; 10] and
+5 is optimal. The Charbonnier penalty uses (cid:15) = 0:001 for
+both the data and the spatial term in Eq. (1). The Lorentzian
+uses (cid:27) = 1:5 for the data term, and (cid:27) = 0:03 for the spa-
+tial term. These parameters are ﬁxed throughout the exper-
+iments, except where mentioned.
+Table 1 summarizes the EPE results of the basic model
+with three different penalty functions on the Middlebury
+test set, along with the two top performers at the time of
+publication (considering only published papers). The clas-
+sic formulations with two non-quadratic penalty functions
+(Classic-C) and (Classic-L) achieve competitive results de-
+spite their simplicity. The baseline optimization of HS and
+BA (Classic-L) results in signiﬁcantly better accuracy than
+previously reported for these models [31]. Note that the
+analysis also holds for the training set (Table 2).
+At the time of publication, Classic-C ranks 13th in av-
+erage EPE and 15th in AAE in the Middlebury benchmark
+despite its simplicity, and it serves as the baseline below. It
+is worth noting that the spatially discrete MRF formulation
+taken here is competitive with variational methods such as
+[33]. Moreover, our baseline implementation of HS has a
+lower average EPE than many more sophisticated methods.
+Classic-C
+HS
+Classic-L
+Classic-C-brightness
+HS-brightness
+Classic-L-brightness
+Gradient
+signiﬁcance
+p-value
+Table 2. Pre-Processing. Average end-point error (EPE) on the
+Middlebury training set for the baseline method (Classic-C) using
+different pre-processing techniques. Signiﬁcance is always with
+respect to Classic-C.
+4. Secrets Explored
+We evaluate a range of variations from the baseline ap-
+proach that have appeared in the literature, in order to illu-
+minate which may be of importance. This analysis is per-
+formed on the Middlebury training set by changing only one
+property at a time. Statistical signiﬁcance is determined
+using a Wilcoxon signed rank test between each modiﬁed
+method and the baseline Classic-C; a p value less than 0:05
+indicates a signiﬁcant difference.
+Pre-Processing. For each method, we optimize the regu-
+larization parameter (cid:21) for the training sequences and report
+the results in Table 2. The baseline uses a non-linear pre-
+ﬁltering of the images to reduce the inﬂuence of illumina-
+tion changes [34]. Table 2 shows the effect of removing
+this and using a standard brightness constancy model (*-
+brightness). Classic-C-brightness actually achieves lower
+EPE on the training set than Classic-C but signiﬁcantly
+lower accuracy on the test set: Classic-C-brightness =
+0.726, HS-brightness = 0.759, and Classic-L-brightness
+= 0.603 – see Table 1 for comparison. This disparity sug-
+gests overﬁtting is more severe for the brightness constancy
+assumption. Gradient only imposes constancy of the gra-
+dient vector at each pixel as proposed in [12] (i.e. it robustly
+penalizes Euclidean distance between image gradients) and
+has similar performance in both training and test sets (c.f .
+Table 8). See [30] for results of more alternatives.
+Secrets: Some form of image ﬁltering is useful but simple
+derivative constancy is nearly as good as the more sophisti-
+cated texture decomposition method.
+Coarse-to-ﬁne estimation and GNC. We vary the number
+of warping steps per pyramid level and ﬁnd that 3 warping
+steps gives similar results as using 10 (Table 3). For the
+GNC scheme, [31] uses a downsampling factor of 0:8 for
+non-convex optimization. A downsampling factor of 0:5
+(Down-0:5), however, has nearly identical performance
+Removing the GNC step for the Charbonnier penalty
+function (w/o GNC) results in higher EPE on most se-
+quences and higher energy on all sequences (Table 4). This
+suggests that the GNC method is helpful even for the con-
+vex Charbonnier penalty function due to the nonlinearity of
+signiﬁcance
+p-value
+Table 3. Model and Methods. Average end-point error (EPE) on
+the Middlebury training set for the baseline method (Classic-C)
+using different algorithm and modeling choices.
+the data term.
+Secrets: The downsampling factor does not matter when
+using a convex penalty; a standard factor of 0:5 is ﬁne.
+Some form of GNC is useful even for a convex robust
+penalty like Charbonnier because of the nonlinear data term.
+Interpolation method and derivatives. We ﬁnd that bicu-
+bic interpolation is more accurate than bilinear (Table 3,
+Bilinear), as already reported in previous work [34]. Re-
+moving temporal averaging of the gradients (w/o TAVG),
+using Central difference ﬁlters, or using a 7-point deriva-
+tive ﬁlter [13] all reduce accuracy compared to the base-
+line, but not signiﬁcantly. The MATLAB built-in function
+interp2 is based on cubic convolution approximation [20].
+The spline-based interpolation scheme [26] is consistently
+better (Bicubic-II). See [30] for more discussions.
+Secrets: Use spline-based bicubic interpolation with a 5-
+point ﬁlter. Temporal averaging of the derivatives is proba-
+bly worthwhile for a small computational expense.
+Penalty functions. We ﬁnd that the convex Charbonnier
+penalty performs better than the more robust, non-convex
+Lorentzian on both the training and test sets. One reason
+might be that non-convex functions are more difﬁcult to op-
+timize, causing the optimization scheme to ﬁnd a poor local
+(a) With median ﬁltering
+(b) Without median ﬁltering
+optimum. We investigate a generalized Charbonnier penalty
+function (cid:26)(x) = (x2 + (cid:15)2)a that is equal to the Charbon-
+nier penalty when a = 0:5, and non-convex when a < 0:5
+(see Figure 1). We optimize the regularization parameter (cid:21)
+again. We ﬁnd a slightly non-convex penalty with a = 0:45
+(GC-0:45) performs consistently better than the Charbon-
+nier penalty, whereas more non-convex penalties (GC-0:25
+with a = 0:25) show no improvement.
+Secrets: The less-robust Charbonnier is preferable to the
+Lorentzian and a slightly non-convex penalty function (GC-
+0:45) is better still.
+Median ﬁltering. The baseline 5 (cid:2) 5 median ﬁlter (MF
+5(cid:2)5) is better than both MF 3(cid:2)3 [34] and MF 7(cid:2)7 but the
+difference is not signiﬁcant (Table 3). When we perform 5(cid:2)
+5 median ﬁltering twice (2(cid:2) MF) or ﬁve times (5(cid:2) MF) per
+warping step, the results are worse. Finally, removing the
+median ﬁltering step (w/o MF) makes the computed ﬂow
+signiﬁcantly less accurate with larger outliers as shown in
+Table 3 and Figure 2.
+Secrets: Median ﬁltering the intermediate ﬂow results once
+after every warping iteration is the single most important
+secret; 5 (cid:2) 5 is a good ﬁlter size.
+4.1. Best Practices
+Combining the analysis above into a single approach
+means modifying the baseline to use the slightly non-
+convex generalized Charbonnier and the spline-based bicu-
+bic interpolation. This leads to a statistically signiﬁcant
+improvement over the baseline (Table 3, Classic++). This
+method is directly descended from HS and BA, yet updated
+with the current best optimization practices known to us.
+This simple method ranks 9th in EPE and 12th in AAE on
+the Middlebury test set.
+5. Models Underlying Median Filtering
+Our analysis reveals the practical importance of median
+ﬁltering during optimization to denoise the ﬂow ﬁeld. We
+ask whether there is a principle underlying this heuristic?
+One interesting observation is that ﬂow ﬁelds obtained
+with median ﬁltering have substantially higher energy than
+those without (Table 4 and Figure 2). If the median ﬁlter
+is helping to optimize the objective, it should lead to lower
+energies. Higher energies and more accurate estimates sug-
+gest that incorporating median ﬁltering changes the objec-
+tive function being optimized.
+The insight that follows from this is that the median ﬁl-
+tering heuristic is related to the minimization of an objective
+function that differs from the classical one. In particular the
+optimization of Eq. (1), with interleaved median ﬁltering,
+approximately minimizes
+The connection to median ﬁltering (as a denoising
+method) derives from the fact that there is a direct relation-
+ship between the median and L1 minimization. Consider
+a simpliﬁed version of Eq. (2) with just the coupling and
+non-local terms, where E(^u) =
+While minimizing this is similar to median ﬁltering u, there
+are two differences. First, the non-local term minimizes the
+L1 distance between the central value and all ﬂow values
+in its neighborhood except itself. Second, Eq. (3) incorpo-
+rates information about the data term through the coupling
+equation; median ﬁltering the ﬂow ignores the data term.
+The formal connection between Eq. (3) and median ﬁl-
+tering3 is provided by Li and Osher [23] who show that min-
+2Bruhn et al. [13] also integrated information over a local region in a
+global method but did so for the data term.
+3Hsiao et al. [19] established the connection in a slightly different way.
+Dimetrodon
+Hydrangea
+RubberWhale
+Table 4. Eq. (1) energy ((cid:2)106) for the optical ﬂow ﬁelds computed on the Middlebury training set. Note that Classic-C uses graduated
+non-convexity (GNC), which reduces the energy, and median ﬁltering, which increases it.
+imizing Eq. (3) is related to a different median computation
+where Neighbors(k) = f^u(k)
+^u(0) = u as well as
+Data = fui;j; ui;j (cid:6) (cid:21)3
+g;
+where jNi;jj denotes the (even) number of neighbors of
+(i; j). Note that the set of “data” values is balanced with
+an equal number of elements on either side of the value ui;j
+and that information about the data term is included through
+ui;j. Repeated application of Eq. (4) converges rapidly [23].
+Observe that, as (cid:21)3=(cid:21)2 increases, the weighted data val-
+ues on either side of ui;j move away from the values of
+Neighbors and cancel each other out. As this happens,
+Eq. (4) approximates the median at the ﬁrst iteration
+Eq. (2) thus combines the original objective with an ap-
+proximation to the median, the inﬂuence of which is con-
+trolled by (cid:21)3=(cid:21)2. Note in practice the weight (cid:21)2 on the
+coupling term is usually small or is steadily increased from
+small values [34, 39]. We optimize the new objective (2) by
+alternately minimizing
+Note that an alternative formulation would drop the cou-
+pling term and impose the non-local term directly on u and
+v. We ﬁnd that optimization of the coupled set of equations
+is superior in terms of EPE performance.
+signiﬁcance
+Classic-C
+Classic-C-A
+p-value
+Table 5. Average end-point error (EPE) on the Middlebury train-
+ing set is shown for the new model with alternating optimization
+(Classic-C-A).
+Alternatingly optimizing this new objective function
+(Classic-C-A) leads to similar results as the baseline
+Classic-C (Table 5). We also compare the energy of these
+solutions using the new objective and ﬁnd the alternat-
+ing optimization produces the lowest energy solutions, as
+shown in Table 6. To do so, we set both the ﬂow ﬁeld u; v
+and the auxiliary ﬂow ﬁeld ^u; ^v to be the same in Eq. (2).
+In summary, we show that the heuristic median ﬁlter-
+ing step in Classic-C can now be viewed as energy min-
+imization of a new objective with a non-local term. The
+explicit formulation emphasizes the value of robustly inte-
+grating information over large neighborhoods and enables
+the improved model described below.
+6. Improved Model
+By formalizing the median ﬁltering heuristic as an ex-
+plicit objective function, we can ﬁnd ways to improve it.
+While median ﬁltering in a large neighborhood has advan-
+tages as we have seen, it also has problems. A neighborhood
+centered on a corner or thin structure is dominated by the
+surround and computing the median results in oversmooth-
+ing as illustrated in Figure 3(a).
+Examining the non-local term suggests a solution. For a
+given pixel, if we know which other pixels in the area be-
+long to the same surface, we can weight them more highly.
+The modiﬁcation to the objective function is achieved by
+introducing a weight into the non-local term [14, 15]:
+0
+where wi;j;i0;j0 represents how likely pixel i
+to the same surface as i; j.
+Classic-C
+Classic-C w/o MF
+Classic-C-A
+Dimetrodon
+Hydrangea
+RubberWhale
+Table 6. Eq. (2) energy ((cid:2)106) for the computed ﬂow ﬁelds on the Middlebury training set. The alternating optimization strategy (Classic-
+C-A ) produces the lowest energy solutions.
+Figure 3. Median ﬁltering over-smoothes the riﬂe in the “Army”
+sequence, while the proposed weighted non-local term preserves
+the detail. Results of (a) Classic++ (b) Classic+NL.
+exp
+where the occlusion variable o(i; j) is calculated using
+Eq. (22) in [29], I(i; j) is the color vector in the Lab space,
+and (cid:27)1 = 7; (cid:27)2 = 7. Examples of such weights are shown
+for several 15 (cid:2) 15 neighborhoods in Figure 4; bright val-
+ues indicate higher weights. Note the neighborhood labeled
+d, corresponding to the riﬂe. Since pixels on the riﬂe are
+in the minority, an unweighted median would oversmooth.
+The weighted term instead robustly estimates the motion
+using values on the riﬂe. A closely related piece of work is
+[27], which uses the intervening contour to deﬁne afﬁnities
+among neighboring pixels for the local Lucas and Kanade
+[24] method. However it only uses this scheme to estimate
+motion for sparse points and then interpolates the dense
+ﬂow ﬁeld.
+weighted median problem
+for all
+(i0;j0)2Ni;j[fi;jg
+the pixels
+using the formula (3.13)
+(Classic+NL-Full). Note if all the weights are equal, the
+solution is just the median. In practice, we can adopt a fast
+version (Classic+NL) without performance loss. Given a
+current estimate of the ﬂow, we detect motion boundaries
+using a Sobel edge detector and dilate these edges with a
+5 (cid:2) 5 mask to obtain ﬂow boundary regions. In these re-
+gions we use the weighting in Eq. (9) in a 15(cid:2)15 neighbor-
+hood. In the non-boundary regions, we use equal weights in
+a 5 (cid:2) 5 neighoborhood to compute the median.
+Figure 4. Neighbor weights of the proposed weighted non-local
+term at different positions in the “Army” sequence.
+signiﬁcance
+Classic+NL
+Classic+NL-Full
+p-value
+Table 7. Average end-point error (EPE) on the Middlebury training
+set is shown for the fast and full versions of the improved model.
+Classic++
+Classic++Gradient
+Classic+NL
+Classic+NL-Full
+Table 8. Average end-point error (EPE) on the Middlebury test set
+for the Classic++ model with two different preprocessing tech-
+niques and its improved model.
+Tables 7 and 8 show that the weighted non-local term
+(Classic+NL) improves the accuracy on both the training
+and the test sets. Note that the ﬁne detail of the “riﬂe” is
+preserved in Figure 3(b). At the time of publication, Clas-
+sic+NL ranks 1st in both AAE and EPE in the Middlebury
+evaluation and has the lowest average AAE and EPE among
+all listed algorithms. The running time on the test “Ur-
+ban” sequence is about 70 minutes for Classic+NL-Full
+and about 16 miniutes for Classic+NL in MATLAB.
+7. Conclusions
+Implemented using modern practices, classical optical
+ﬂow formulations produce competitive results on the Mid-
+dlebury training and test sets. To understand the “secrets”
+that help such basic formulations work well, we quantita-
+tively studied various aspects of ﬂow approaches from the
+literature, including their implementation details. Among
+the good practices, we found that using median ﬁltering to
+denoise the ﬂow after every warping step is key to improv-
+ing accuracy, but that it increases the energy of the ﬁnal re-
+sult. Exploiting connections between median ﬁltering and
+L1-based denoising, we showed that algorithms relying on a
+median ﬁltering step are approximately optimizing a differ-
+ent objective that regularizes ﬂow over a large spatial neigh-
+borhood. This principle enables us to design and optimize
+improved models that weight the neighbors adaptively in an
+extended image region. At the time of publication (March
+2010), the resulting algorithm ranks 1st in both angular and
+end-point errors in the Middlebury evaluation. The MAT-
+LAB code is publicly available [1].
+How far can the 2-frame classical methods be pushed?
+Our sense is that they are likely to improve incrementally
+for several years to come, but that the big gains will come
+from methods that go beyond the classical formulation to
+reason more explicitly about surfaces and boundaries and
+how they move over time.
+Acknowledgments. DS and MJB were supported by a gift
+from Intel Corp. and NSF CRCNS award IIS-0904875. We thank
+the reviewers for constructive comments, especially the connec-
+tion between our original “area” term and non-local regulariza-
+tion, P. Yadollahpour for his early work on implementing the HS
+method, S. Zufﬁ for suggesting the color version of the non-local
+term, T. Brox, A. Wedel, and M. Werlberger for clarifying details
+about their papers, and D. Scharstein for maintaining the online
+optical ﬂow benchmark.
+classes of algorithm-suitability. In CVPR, 2010.
+[5] A. Bab-Hadiashar and D. Suter. Robust optic ﬂow computation.
+[11] A. Blake and A. Zisserman. Visual Reconstruction. The MIT Press,
+[15] G. Gilboa and S. Osher. Nonlocal operators with applications to im-
+[20] R. G. Keys. Cubic convolution interpolation for digital image pro-
+region-trees using discrete optimization. In ICCV, 2009.
+FusionFlow: Discrete-
+continuous optimization for optical ﬂow estimation. In CVPR, 2008.
+[23] Y. Li and S. Osher. A new median formula with applications to PDE
+[29] P. Sand and S. Teller. Particle video: Long-range motion estimation
+[30] D. Sun, S. Roth, and M. J. Black. A quantitative analysis of current
+practices in optical ﬂow estimation and the principles behind them.
+Technical report, Brown-CS-10-03, 2010.
+regularization for high accuracy optic ﬂow. In ICCV, 2009.

@@ -1,0 +1,650 @@
+S2F: Slow-To-Fast Interpolator Flow
+Yanchao Yang
+Stefano Soatto
+UCLA Vision Lab, University of California, Los Angeles, CA 90095
+{yanchao.yang, soatto}@cs.ucla.edu
+Abstract
+We introduce a method to compute optical ﬂow at
+multiple scales of motion, without resorting to multi-
+resolution or combinatorial methods. It addresses the
+key problem of small objects moving fast, and resolves
+the artiﬁcial binding between how large an object is and
+how fast it can move before being diffused away by clas-
+sical scale-space. Even with no learning, it achieves
+top performance on the most challenging optical ﬂow
+benchmark. Moreover, the results are interpretable, and
+indeed we list the assumptions underlying our method
+explicitly. The key to our approach is the matching pro-
+gression from slow to fast, as well as the choice of in-
+terpolation method, or equivalently the prior, to ﬁll in
+regions where the data allows it. We use several off-
+the-shelf components, with relatively low sensitivity to
+parameter tuning. Computational cost is comparable to
+the state-of-the-art.
+1. Introduction
+Most existing optical ﬂow algorithms struggle with
+small things that move fast, even those explicitly de-
+signed for large displacement. This phenomenon does
+not have a dramatic impact on the benchmarks, since
+the problem being with small objects makes it such algo-
+rithms are not penalized too harshly. Nevertheless, small
+objects are important: humans can effortlessly pick out
+a bee ﬂying at a distance.
+In analyzing the root causes for the failure by most al-
+gorithms to capture small things moving fast, we honed
+in on a fundamental problem with classical scale-space,
+which trades off spatial frequencies (by blurring and
+down-sampling images) with temporal anti-aliasing (to
+compute temporal derivatives). This ties the size of ob-
+jects to the speed at which they can move before being
+blurred-away in the multi-resolution pyramid that is rou-
+tinely used in multi-scale/multi-resolution stages com-
+mon to most variational optical ﬂow techniques.1 This
+multi-scale structure is also common in convolutional
+neural network architectures, so optical ﬂow schemes
+based on them are typically subject to similar failure
+modes.
+We propose a novel scheme for multi-scale match-
+ing, where the scale-space variable is not the amount of
+diffusion/subsampling of spatial resolution, but instead
+the size of the interest region on which local match-
+ing is based, at the native resolution. Thus, like others
+have done before, we perform multi-scale without multi-
+resolution. The iteration is instead over the radius of
+the region-of-interest, whereby regions with larger and
+larger radii operate on smaller and smaller subsets of the
+image domains. Slower objects are matched ﬁrst, and
+then faster and smaller ones, hence the name S2F.
+Clearly, the prior or regularization model plays a key
+role in optical ﬂow. Rather than delegating it to a dataset
+and a generic function approximator, we discuss the spe-
+ciﬁc model assumptions made in our method, and the
+topology with respect to which we consider pixels to be
+“nearby.” In other words, we hand-engineer the prior,
+almost anathema in the age of Deep Learning.
+Despite the absence of any learning, our algorithm
+achieves top performance in the most challenging opti-
+cal ﬂow benchmark, Sintel. More importantly, we can
+at least try to explain the performance, which we do in
+Sect. 3. Before doing so, we relate our work to the
+current art in Sect. 1.1, summarize the motivations and
+the actual algorithm in Sect. 1.3, and describe empirical
+tests in Sect. 2
+1.1. Related work
+Optical ﬂow has been a core concern in Computer Vi-
+sion for over two decades, with too many contributions
+to review here. It is a building block in many low-level
+vision tasks, and plays a role in a large number of ap-
+plications, from autonomous navigation to video post-
+1Combinatorial matching methods are not subject to this limitation.
+production, only to mention a few. The interested reader
+can get an overview of recent developments in [18].
+The case of fast motion has been tackled head-on in
+many recent works on large-displacement optical ﬂow,
+for instance [4, 17, 1, 21, 25, 7, 2, 8, 30] and refer-
+ences therein. Several methods are proposed, mixing
+sparse matching with interpolation [26, 17], a philoso-
+phy we adopt. However, to the best of our knowledge,
+none addresses speciﬁcally the interplay of size and mo-
+tion in multi-scale processing, and proposes an iteration
+that increases the region-of-interest, acting on a decreas-
+ing residual domain on the image.
+In particular, [21]
+addresses matching from small to large displacements,
+however it follows the standard scale-space of [4], and
+focuses on a novel descriptor inspired by sparse coding.
+Also, [26] learns a regularizer from the computed ﬂow,
+which however follows a standard approach to scale-
+space. Both signiﬁcantly underperform our method on
+the benchmarks.
+Nevertheless, many of these methods are effective at
+capturing the fast motion of small regions, see for in-
+stance Fig. 10 of [4]. Our work follows these trends and
+makes a further step to improve results on fast-moving
+small objects (Fig. 1); [28] addresses the problem of lost
+details in the coarse-to-ﬁne matching by not completely
+relying on the ﬂow propagated from the upper levels.
+Some have used coarse-to-ﬁne matching that main-
+tains the native resolution [16, 1, 13], or other multi-
+scale approaches in a combinatorial setting [21, 9].
+Other samples of relevant related work include [24, 27,
+3, 29, 6]. None of these works, however, perform multi-
+scale processing quite in the manner we do: Processing
+smaller and smaller regions that move faster and faster.
+Our cost function is entirely hand-engineered to ad-
+dress known shortcomings and violations of the assump-
+tions underlying the basic brightness constancy con-
+straint. In part, this is because the phenomenology of
+correspondence is well understood, and therefore we are
+not compelled to learn it anew. To be fair, while phe-
+nomena like occlusions, scaling and domain deforma-
+tions are well understood, the complex interaction of
+light and matter in non-Lambertian materials is difﬁcult
+to model. This is where data-driven approaches such as
+[20, 22, 15, 11] have the most potential.
+1.2. Summary of contributions and organization
+of the paper
+We present yet another algorithm for optical ﬂow,
+that focuses on the speciﬁc problem of coupling spa-
+tial and temporal statistics implicit in multi-scale/multi-
+resolution methods.
+Our algorithm performs multi-scale inference by se-
+quentially hypothesizing dense ﬂow, and testing viola-
+tion of the assumptions, on a shrinking domain, that is
+tested for increasingly large displacements.
+When tested on benchmark datasets, our algorithm
+performs competitively. At the time of writing, it was
+the top performer on Sintel [5], which includes sev-
+eral examples of large displacement of small structures.
+It ranks middle-of-the-pack on Middlebury [19], which
+however is a very limited benchmark with only 12 im-
+age pairs, only 8 of which with ground truth. Interest-
+ingly, the only image pairs with large displacement of
+small objects are the four with no ground truth, which
+are therefore not part of the evaluation score. We also
+test on KITTI [12], where our approach is competitive
+despite no ﬁne-tuning to the dataset being performed.
+In the next section, we describe our approach in sum-
+mary, then report empirical tests in Sect. 2 to show how
+it works, and in Sect. 3 we venture an explanation of
+why it works.
+1.3. Rationale and underlying assumptions
+Given two (grayscale) images I1, I2 : D ⊂ R2 →
+R+, optical ﬂow is a map w : R2 → R2 deﬁned at points
+x ∈ D ⊂ R2 implicitly by I1(x) = I2(w(x)) + n(x),
+where n(x) is an uninformative (white) residual. Op-
+tical ﬂow is related to motion ﬁeld (the projection of the
+displacement of points in space when seen in I1 and I2
+[23]) under several assumptions on the scene around the
+(pre-image) point X ∈ R3 of x ∈ D, including: (i)
+Lambertian reﬂection and constant illumination, (ii) co-
+visibility. When (i) is violated, there is in general no
+relation between optical ﬂow and motion ﬁeld. When
+(ii) is violated (occlusion) there exists no transformation
+w mapping x in image I1 onto a corresponding point in
+image I2. When w exists, it may not be unique, i.e., (iii)
+ﬂow can be non-identiﬁable, which happens when the
+irradiance (“intensity”) is not sufﬁciently exciting (e.g.,
+constant). This issue is usually addressed via regular-
+ization, by allowing a prior to ﬁll in the ﬂow from sufﬁ-
+ciently exciting areas. A ﬁnal assumption that is not nec-
+essary but common to many algorithms, is (iv) small dis-
+placement w(x) (cid:39) x. This allows using differential op-
+erations (regularized gradient) that facilitate variational
+optimization. This issue is not present in a combinatorial
+setting, where any large displacement is allowed, but at
+a prohibitive computational cost. In the variational set-
+ting, the issue is usually addressed via multi-scale meth-
+ods, where temporal anti-aliasing is performed by spa-
+tial smoothing, through the creation of multi-resolution
+image pyramids (smoothed and sub-sampled versions of
+an image [14]), where large displacements at ﬁne-scale
+correspond to small displacements at coarse-scale.
+Small things moving fast
+There is a fundamental problem with multi-scale ap-
+proaches based on classical scale-space, in that it cou-
+ples spatial and temporal frequencies. In other words,
+it ties the size of objects to their allowable speed. This
+is manifested in typical failure cases with small things
+moving fast (Fig. 1). In general, the size of an object
+and the speed at which it moves are independent, and
+they should be treated as such, rather than be coupled
+for mathematical convenience. How then to address the
+spatial variability of image velocity?
+Multi-scale without multi-resolution
+Our approach to avoid the pitfall of multi-resolution,
+while addressing the intrinsically space-varying scale of
+motion and respecting the assumptions underlying opti-
+cal ﬂow computation, is to design a method that is multi-
+scale but not multi-resolution.
+It operates at the native resolution, using increasingly
+large regions-of-interest operating on a decreasing sub-
+set of the image domain. Instead of using spatial blur-
+ring as the scale parameter, it uses speed, or magni-
+tude of displacement. This is the key to our method,
+and explains the name “slow-to-fast”. The next section
+sketches a generic implementation of our algorithm, and
+subsequent sections detail our choices of components
+and parameters.
+Sketch of S2F-IF
+on a region/window B(r) with radius r, using a
+conservative threshold.
+This leaves a (typically sparse) set of points D =
+{xi}N (r)
+i=1 , and yields their (by assumption, typi-
+cally small) displacements wi = w(xi).
+3. Interpolate the sparse matches to ﬁll unmatched re-
+gions D\D that violated (i)-(iv), based on a choice
+of prior/regularizer, leading again to a dense ﬁeld
+˜w and point-wise residual ˜ρ(x) = φ(x; ˜w). Given
+ﬂow at each point, check f-b compatibility after
+warping; large residuals are considered occlusions
+(violations of (ii)).
+4. Optionally partition I1 into piecewise constant re-
+gions {Sj}M
+j=1 (super-pixels), to facilitate compu-
+tation, and expand D to include simply-connected
+regions with small residual Sj ∩ χ(˜ρ < r).
+5. Mask the matched regions D from the images,
+I1 ← I1 · χ(D\D), and similarly for the warped
+I2 ◦ ˜w, where the dot indicates point-wise multipli-
+cation (matched regions are now black).
+Several comments are now in order:
+• Step 2 implements a conservative sparse matching
+procedure for regions of size r, that leads to a set of
+sparse matches. Our choice [1] can be replaced by
+any other conservative sparse matching.
+• The matched region D typically grows monotoni-
+cally, so the procedure either terminates with a non-
+empty unmatched set, if no further matches could
+be found, or each pixel is matched D = D.
+• In theory, the process should be terminated before
+each pixel is matched, as displacement is not de-
+ﬁned in occluded region. In practice, all pixels are
+typically matched, exploiting the regularizer im-
+posed by the interpolation step.
+• The ﬁrst regions of the scene to be matched are the
+ones that are (i) Lambertian, with (ii) sufﬁciently
+exciting radiance, are (iii) co-visible, and (iv) mov-
+ing slowly. As iterations progress, smaller and
+smaller regions that are moving faster and faster
+are matched. For this reason, we call this scheme
+Slow-To-Fast (S2F) Interpolator Flow (IF), as the
+ﬁnal solution is inﬂuenced heavily by the prior.
+• The crucial characteristic of the algorithm above,
+which is responsible for edging the state-of-the-art,
+is its lossless multi-scale nature, that is the search
+at multiple scales of motion, without changing the
+resolution of the images.
+• The algorithm is relatively insensitive to the choice
+of component algorithms at each step, although the
+most crucial is the choice of interpolation, which
+we discussed at in Sect. 3.2
+2. Experiments
+2.1. Qualitative results
+Fig. 1 illustrates the key characteristic of our method
+in comparison to most alternate methods, which we
+choose to represent with a close-to state-of-the-art base-
+line [18]. Small objects that move fast are diffused away
+by scale-space by the time their displacement becomes
+small enough for a variational optical ﬂow algorithm to
+resolve. Modifying spatial frequencies (smoothing and
+down-sampling) to achieve temporal anti-aliasing (to en-
+able approximation of temporal derivatives with ﬁrst dif-
+ferences) ties the size of objects with their speed, in
+ways that are detrimental. Our approach treats them as
+independent, thus enabling us to capture their motion.
+It should be mentioned that combinatorial search-base
+schemes are not subject to this limitation, but suffer from
+prohibitive computational complexity.
+Fig. 2 illustrates the various stages of evolution of
+our algorithm, corresponding to the sketch in Sect. 1.3.
+Fig. 3 shows the evolution of the matched domain,
+which typically shrinks monotonically to encompass the
+entire image domain, with the last, unmatched region
+ﬁlled in by the regularizer.
+2.2. Benchmark comparisons
+Fig. 4 shows representative samples for the bench-
+marks used. The Middlebury dataset [19] comprises 12
+pairs of images of mostly static man-made scenes seen
+under a short baseline. There are few small objects, and
+none moves fast in the only 8 ground-truthed pairs. The
+only pairs showing large displacement of small objects
+Figure 1. Small things moving fast (top-left) two images from
+the Middlebury dataset (shown superimposed) with the fast-
+moving ball highlighted, are a classic failure mode of multi-
+resolution optical ﬂow (top-right; the inset color wheel shows
+the map from color to image displacement). Small objects dis-
+appear at coarse resolution, where large motions are computed
+(bottom row), and are never recovered in a differential-based
+variational scheme [18] (top-right).
+Method
+CPM-Flow
+DeepFlow2
+Avg. Rank Method
+EpicFlow
+FlowNetS
+FlowFields
+Table 1. Average endpoint error on Middlebury for the top-
+performing algorithms on Sintel. Full ranking can be accessed
+directly on the Middlebury ﬂow page http://vision.
+middlebury.edu/flow/eval/.
+are the 4 with no ground truth, including the one shown
+in Fig. 4, which are unfortunately not included in the
+evaluation. Our algorithm estimates ﬂow more accu-
+rately on these sequences. In overall performance, our
+method ranks in the middle-of-the-pack on this dataset.
+As a sanity check, we use the Middlebury dataset to
+compare against the algorithms that report top perfor-
+mance on Sintel, which is a larger dataset showing a
+wider variety of motions, including large displacement
+of small objects. The results in Table 1, show our algo-
+rithms comparing favorably. The fact that top perform-
+ers on Sintel are different from top performers on Mid-
+dlebury suggests that one of the datasets, or both, are
+easily overﬁt. Middlebury only has 12 image pairs, only
+8 of which with ground truth, none of them with large
+displacement.
+A better benchmark is the KITTI dataset [12], which
+consists of outdoor driving sequences, with sparse
+ground truth. Quantitative comparisons with competing
+algorithms is shown in Table 2. We use default param-
+Figure 2. Visualization of the stages of our algorithm: Original images (left), initial sparse matches (middle-left, step 2), interpolated
+ﬂow (middle-left, step 3), super-pixelization (middle-right, step 4), matched set (middle-right, step 5) and residual masked image
+(right) after the ﬁrst iteration.
+Method
+CPM-Flow
+EpicFlow
+DeepFlow2
+FlowNetS
+FlowFields
+FlowField-
+Figure 3. Matched regions as the iteration evolves from the ﬁrst
+(top row) to the last (bottom rows). The unmatched region
+(white) shrinks in size, until it converges to regions that are
+compatible with the hypotheses, but where there is no unique
+match (third row). On these, the regularizer has license to ﬁll
+in (bottom), where we highlight details on the legs of the di-
+nosaur, where the overall procedure corrects initial matching
+errors of the baseline ﬂow algorithm.
+eters, not ﬁne-tuned for the dataset, and show competi-
+tive performance. As expected, we outperform the base-
+line ﬂow algorithm we use as a component, shown as
+the last line on the table as FlowField-.
+It should
+be noticed that the same algorithm has been ﬁne-tuned
+to the KITTI dataset by the authors, shown on the ta-
+ble as FlowFields, with a considerable improvement
+in performance, suggesting that this dataset can also be
+overﬁt. Since the parameters chosen for the test are not
+disclosed, we use the same parameters of the baseline
+as released, with no ﬁne-tuning for the dataset. We feel
+that this test is more representative than reporting the
+best score with different parameters for each dataset.
+Table 2. Comparison on the KITTI dataset. Our method uses
+as a component FlowField- for ﬂow computation. As ex-
+pected, it improves its performance. The same algorithm, how-
+ever, ﬁne-tuned to the dataset (indicted as FlowFields, for
+which no parameters are disclosed) further improves perfor-
+mance. We do not ﬁne-tune ours, and simply report our per-
+formance with the same tuning for all datasets. Out-Noc in-
+dicates the percentage of pixels with error larger than 3 pixels
+in non-occluded regions, whereas Out-All indicates percentage
+of outliers among all pixels. Avg denotes the average end-point
+error, again for non-occluded, or all pixels.
+tel dataset [5], which is a synthetic one, but challenging
+in that it includes fast motion, motion blur, and has pre-
+cise ground truth. We report the performance in the ofﬁ-
+cial benchmark in Table 3, with our algorithm exhibiting
+top performance in overall end-point error at the time of
+writing.
+These results illustrate the beneﬁt in speciﬁcally han-
+dling multi-scale phenomena without sacriﬁcing resolu-
+tion and confusing spatial statistics with temporal ones.
+Several representative sample results are shown in the
+Supplementary Material, and the up-to-date ranking on
+the benchmark can be veriﬁed on the Sintel website
+http://sintel.is.tue.mpg.de/results.
+The next section gives more details on our choice of
+component methods for the generic algorithm described
+in Sect. 1.3.
+Figure 4. Representative samples from various datasets: Middlebury (row 1), KITTI (rows 2, 3, 4), SINTEL (rows 5,6). We compare
+the component ﬂow [1] (FlowFields), with ours (S2F). More examples are shown in the Supplementary Material; Small objects
+moving fast are highlighted in the yellow box.
+3. Technical Details
+The basic algorithm was described in Sect.
+1.3,
+and consists of sparse matching, followed by interpo-
+lation, followed by testing for violation of the hypothe-
+ses, where the iteration is with respect to a growing ra-
+dius for the region of interest, which operates on smaller
+and smaller residual unmatched portion of the image do-
+main.
+Step 2 of our algorithm results in a sparse set of re-
+gions being matched over short displacements. This is
+not because we actively seek for sparse matches with
+small displacement. On the contrary, we start with a
+dense ﬂow, speciﬁcally [1], but then conservatively re-
+ject all regions that fail hypotheses (i)-(ii) based on
+residual or f-b compatibility. This naturally results in
+a sparse set, because sufﬁcient excitation conditions
+(which are tested through f-b compatibility) require
+large gradients in two independent directions, which is
+typically only satisﬁed on a sparse subset of the image
+domain. Conceptually, any other sparse matching would
+do, and the algorithm is not very sensitive to the choice
+of method for this step, which we therefore do not fur-
+ther discuss.
+Method
+FlowFields
+FlowFields+
+SPM-BPv2
+FullFlow
+CPM-Flow
+EpicFlow
+DeepFlow2
+Table 3. Comparison on the Sintel dataset. Refer to http://sintel.is.tue.mpg.de/results for details and for links to
+the various methods listed on the left. EPE stands for end-point error, among all, matched, and unmatched pixels (second through
+third column). dX-Y stands for error restricted to pixels between X and Y of objects boundaries, thus discounting error at occluded
+regions. sX-Y stands for pixels with displacements between X and Y pixels. Our method is competitive on all counts, and shines
+for large displacements, as expected.
+The algorithm is sensitive to the choice of prior,
+which in our case corresponds to the choice of interpola-
+tion algorithm. To describe and motivate our choice, let
+x, y ∈ D ⊂ R2 be two points on the pixel lattice, with
+distance d(x, y) for some choice of norm. We are inter-
+ested in inferring the value of the displacement w(x) at
+x from observations performed at y. We assume a para-
+metric form for the likelihood function
+whereby the displacement w at x is a Gaussian random
+vector having as mean an afﬁne deformation, depends
+on y, of the point x, with an uncertainty
+that grows exponentially with the distance of the obser-
+vation point. The parameters θ = {A, b} can be in-
+ferred via maximum-likelihood, given a sample D =
+{xi, wi}N
+leaving β as a tuning parameter. This is essentially the
+locally-weighted (LA) estimator in Eq. (2) of [17]. Note
+that pθ(w(x)|x) = N (Ax + b; β2I2×2) and the parame-
+ters θ (which are the sufﬁcient statistics of the dataset D
+for the displacement w(x)) are a function of the location
+x. We make this explicit by writing θ = {A(x), b(x)}.
+A point-estimate, for instance the conditional mean, of
+the displacement can be obtained at each point x,
+This approach follows [17] to avoid solving a varia-
+tional optimization problem with explicit regularization,
+which is instead implicit in the ﬁnite-dimensional class
+of transformations (afﬁne) and the ﬁnite data sample D.
+The behavior of this interpolation method hinges criti-
+cally on the choice of distance d in (3), which we de-
+scribe next.
+3.3. Topology
+The distance between two points d(x, y) can be based
+on the topology of the image domain, for instance
+d2(x, y) = (cid:107)x − y(cid:107)2, where nearby pixels are con-
+sidered close, or the topology of the image range, for
+instance dI (x, y) = (cid:107)I(x) − I(y)(cid:107), where pixels with
+similar intensity are considered close. Ideally, we would
+like to use the topology of the scene, and consider points
+x, y ∈ D close if the distance between their pre-images
+(back-projection) onto the scene X, Y ∈ R3 is close.
+This would be a geodesic distance, assuming the scene
+to be multiply-connected and piecewise smooth, inﬁnite
+if X, Y are on different connected components.
+Since we do not have a model of the scene, we use
+a proxy, whereby the distance between two points on
+the same connected component X, Y is the distance be-
+tween their projections x = π(X), y = π(Y ) on the
+image, whereas the distance between points on differ-
+ent connected components adds a term proportional to
+their depth differential relative to the distance from the
+camera.
+While we do not know their depth, disconnected
+components result in occlusion regions with area propor-
+tional to the relative depth differential, where the optical
+ﬂow residual φ(x) = minw (cid:107)I1(x) − I2(w(x))(cid:107) is gen-
+erally large. Therefore, we can take the path-integral of
+optical ﬂow residual as a proxy of the geodesic distance:
+We can also assume that objects are smoothly col-
+ored, and therefore large intensity changes can be at-
+tributed to points being on different objects. Clearly this
+is not always the case, as smooth objects can have sharp
+material transitions, but nevertheless one can restrict the
+topology to simply connected components of the piece-
+wise smooth albedo, and deﬁne dI as
+and similarly bypass the minimization by using a cordal
+distance. Various product distances, and various approx-
+imations to the geodesic, can be derived, for instance
+those in [17]. We use (6) in our algorithm.
+3.4. Hypotheses (i)-(iv) testing
+The key to our algorithm is the multi-scale iteration,
+starting from large regions that move slowly, eventually
+matching small regions that move fast. At each itera-
+tion, hypotheses of (i) Lambertian reﬂection and con-
+stant illumination, and (ii) co-visibilty (large residual)
+are tested conservatively relative to a ﬁxed radius of the
+region of interest. Furthermore, backward-forward com-
+patibility tests (iii) sufﬁcient excitation; where failed, the
+regularizer (which in our case is implicit in the interpo-
+lation scheme) has license to take over.
+While it would be desirable to have an integrated
+Bayesian framework where the thresholds are automat-
+ically determined by competing hypotheses, in practice
+these stages boil down to threshold selection.
+Impor-
+tantly, the algorithm is not extremely sensitive to choice
+of thresholds. For reproducibility purposes, all parame-
+ters are reported in the Supplementary Material, and our
+implementation can be found at: http://vision.
+ucla.edu/s2f.html.
+3.5. Computational cost
+The computational cost of our algorithm is essen-
+tially dictated by the choice of components. Run-time
+depends on the complexity of the motion, since the
+length of our iteration is data-dependent. On average,
+it takes about 1m per pair of frames in Sintel, where im-
+ages are of size 1024 × 436, on a commodity 4-core
+3.1GHz desktop. We have observed convergence in as
+little as 20s, and as long as 2m. This includes all com-
+ponent elements of our pipeline.
+On smaller images, for instance Middlebury’s, (300×
+On KITTI, that has 400 × 1234 pixels per image, our
+algorithm runs, on average, at 1.5m per pair of frames.
+4. Discussion
+interpolation, superpixelization), but
+Our algorithm uses off-the-shelf components (sparse
+matching,
+in a
+manner that allows us to break free of the limitations of
+classical scale-space, that ties spatial frequency degrada-
+tion to temporal anti-aliasing. Instead, we iterate match-
+ing over larger and larger domains of interest, on smaller
+and smaller regions at the native resolution. This is the
+key, together with a choice of regularizer designed to re-
+spect the phenomenology of correspondence, including
+occlusions, domain deformations, and relatively rudi-
+mentary illumination changes.
+Acknowledgments
+References
+[1] Bailer, Christian and Taetz, Bertram and Stricker, Didier.
+Flow ﬁelds: Dense correspondence ﬁelds for highly accu-
+In Pro-
+rate large displacement optical ﬂow estimation.
+ceedings of the IEEE International Conference on Com-
+puter Vision, pages 4015–4023, 2015. 2, 3, 5, 6
+[2] Bao, Linchao and Yang, Qingxiong and Jin, Hailin. Fast
+edge-preserving patchmatch for large displacement opti-
+cal ﬂow. In Proceedings of the IEEE Conference on Com-
+puter Vision and Pattern Recognition, pages 3534–3541,
+2014. 2
+[3] Braux-Zin, Jim and Dupont, Romain and Bartoli, Adrien.
+A general dense image matching framework combining
+direct and feature-based costs. In Proceedings of the IEEE
+International Conference on Computer Vision, pages 185–
+192, 2013. 2
+[5] Butler, Daniel J and Wulff, Jonas and Stanley, Garrett B
+and Black, Michael J. A naturalistic open source movie
+In European Conference on
+for optical ﬂow evaluation.
+Computer Vision, pages 611–625. Springer, October 2012.
+2, 5
+[8] Chen, Zhuoyuan and Jin, Hailin and Lin, Zhe and Co-
+hen, Scott and Wu, Ying. Large displacement optical ﬂow
+from nearest neighbor ﬁelds. In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition,
+pages 2443–2450, 2013. 2
+[9] Dekel, Tali and Oron, Shaul and Rubinstein, Michael and
+Avidan, Shai and Freeman, William T. Best-buddies simi-
+larity for robust template matching. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recog-
+nition, pages 2021–2029. IEEE, 2015. 2
+[11] Fischer, Philipp and Dosovitskiy, Alexey and Ilg, Eddy
+and H¨ausser, Philip and Hazırbas¸, Caner and Golkov,
+Vladimir and van der Smagt, Patrick and Cremers,
+Daniel and Brox, Thomas.
+Flownet: Learning opti-
+arXiv preprint
+cal ﬂow with convolutional networks.
+arXiv:1504.06852, 2015. 2
+[13] Hu, Yinlin and Song, Rui and Li, Yunsong. Efﬁcient
+coarse-to-ﬁne patchmatch for large displacement optical
+ﬂow. Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition, pages 5704–5712, 2016 2
+[14] Lindeberg, Tony. Scale-space theory in computer vision,
+volume 256. Springer Science & Business Media, 2013. 3
+[15] Mac Aodha, Oisin and Humayun, Ahmad and Pollefeys,
+Marc and Brostow, Gabriel J. Learning a conﬁdence mea-
+sure for optical ﬂow. IEEE transactions on pattern anal-
+ysis and machine intelligence, 35(5), pages 1107–1120.
+IEEE, 2013. 2
+[16] Revaud, Jerome and Weinzaepfel, Philippe and Har-
+chaoui, Zaid and Schmid, Cordelia. Deepmatching: Hier-
+archical deformable dense matching. International Jour-
+nal of Computer Vision, 120(3), pages 300–323. Springer,
+2016. 2
+[17] Revaud, Jerome and Weinzaepfel, Philippe and Har-
+chaoui, Zaid and Schmid, Cordelia. Epicﬂow: Edge-
+preserving interpolation of correspondences for optical
+[18] Sun, Deqing and Roth, Stefan and Black, Michael J.
+A quantitative analysis of current practices in optical
+Inter-
+ﬂow estimation and the principles behind them.
+national Journal of Computer Vision, 106(2), pages 115–
+137. Springer, 2014. 2, 4
+[19] Szeliski, Richard and Zabih, Ramin and Scharstein,
+Daniel and Veksler, Olga and Kolmogorov, Vladimir
+and Agarwala, Aseem and Tappen, Marshall and Rother,
+Carsten. A comparative study of energy minimization
+methods for markov random ﬁelds with smoothness-based
+priors. IEEE transactions on pattern analysis and machine
+intelligence, 30(6), pages 1068–1080. IEEE, 2008. 2, 4
+[20] Thewlis, James and Zheng, Shuai and Torr, Philip HS
+Fully-trainable deep matching.
+[22] Tran, Du and Bourdev, Lubomir and Fergus, Rob and
+Torresani, Lorenzo and Paluri, Manohar. Learning spa-
+tiotemporal features with 3d convolutional networks. In
+Proceedings of the IEEE International Conference on
+Computer Vision, pages 4489–4497, 2015. 2
+[23] Verri, Alessandro and Poggio, Tomaso. Motion ﬁeld and
+IEEE Transactions
+optical ﬂow: Qualitative properties.
+on pattern analysis and machine intelligence, 11(5), pages
+490–498. IEEE, 1989. 2
+[25] Weinzaepfel, Philippe and Revaud, Jerome and Har-
+chaoui, Zaid and Schmid, Cordelia. Deepﬂow: Large dis-
+placement optical ﬂow with deep matching. In Proceed-
+ings of the IEEE International Conference on Computer
+Vision, pages 1385–1392, 2013. 2
+[26] Wulff, Jonas and Black, Michael J. Efﬁcient sparse-to-
+dense optical ﬂow estimation using a learned basis and
+layers. In Proceedings of the IEEE Conference on Com-
+puter Vision and Pattern Recognition, pages 120–130.
+IEEE, 2015. 2
+[29] Yang, Jiaolong and Li, Hongdong. Dense, accurate op-
+tical ﬂow estimation with piecewise parametric model. In
+Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition, pages 1019–1027, 2015. 2
+[30] Sevilla-Lara, Laura and Sun, Deqing and Learned-Miller,
+Erik G and Black, Michael J Optical ﬂow estimation with
+channel constancy. European Conference on Computer
+Vision, pages 423–438. Springer, 2014. 2

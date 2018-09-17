@@ -1,0 +1,981 @@
+A Framework for Fast and Robust Visual Odometry
+Meiqing Wu, Member, IEEE, Siew-Kei Lam, Member, IEEE and Thambipillai Srikanthan, Senior Member, IEEE
+Abstract—Knowledge of the ego-vehicle's motion state is essen-
+tial for assessing the collision risk in Advanced Driver Assistance
+Systems (ADASs) or autonomous driving. Vision-based methods
+for estimating the ego-motion of vehicle, i.e. visual odometry,
+face a number of challenges in uncontrolled realistic urban
+environments. Existing solutions fail to achieve a good trade-
+off between high accuracy and low computational complexity.
+In this paper, a framework for ego-motion estimation that
+integrates runtime-efﬁcient strategies with robust techniques at
+various core stages in visual odometry is proposed. Firstly,
+a pruning method is employed to reduce the computational
+complexity of KLT feature detection without compromising on
+the quality of the features. Next, three strategies, i.e. smooth
+motion constraint, adaptive integration window technique and
+automatic tracking failure detection scheme, are introduced into
+the conventional KanadeLucasTomasi(KLT) tracker to facilitate
+generation of feature correspondences in a robust and runtime
+efﬁcient way. Finally, an early termination condition for the
+Random sample consensus(RANSAC) algorithm is integrated
+with the Gauss-Newton optimization scheme to enable rapid
+convergence of the motion estimation process while achieving
+robustness. Experimental results based on the KITTI odometry
+dataset show that the proposed technique outperforms state-of-
+the-art visual odometry methods by producing more accurate
+ego-motion estimation in notably lesser amount of time.
+Index Terms—Visual odometry, ego-motion, collision avoid-
+feature tracking, motion estimation,
+feature detection,
+ance,
+ADASs, autonomous vehicles
+I. INTRODUCTION
+T HE knowledge of ego-vehicle's motion state relative to
+the road serves as the foundation for assessing the risk
+of collision in Advanced Driver Assistance Systems (ADASs)
+and autonomous driving. Conventional means of obtaining the
+ego-motion of the vehicle rely on Inertial Measuring Units
+(IMUs) or Global Positioning System (GPS). However, IMUs
+cannot provide all the necessary information like the pitch
+angle and the roll rate [1], while GPS cannot be relied upon
+to obtain the vehicle's ego-motion in GPS-denied environment
+e.g. under bridges or urban jungles [2]. As such, vision based
+methods for ego-motion estimation are becoming increasingly
+popular as they overcome the drawbacks of IMUs and GPS.
+In addition, camera-based systems offer other advantages e.g.
+ease of maintenance and integration into other functionality
+modules, and reduced cost [3]. Ego-motion estimation that
+relies solely on vision-based sensing is referred to as visual
+odometry [4].
+Visual odometry in the context of external
+trafﬁc envi-
+ronment faces huge challenges. Firstly, unlike the indoor
+environment, the external trafﬁc scene is totally uncontrolled.
+Meiqing Wu, Siew-Kei Lam and Thambipillai Srikanthan are with School
+of Computer Science& Engineering, Nanyang Technological University, Sin-
+gapore (e-mail: wume0007@e.ntu.edu.sg).
+The scene can be cluttered and contains a lot of moving
+objects. The scene can also be subjected to inconsistent il-
+lumination. As such, visual odometry algorithms must be able
+to work robustly under such challenging situations. Secondly,
+computing systems in vehicles are embedded systems with
+restricted computational resources. The proposed algorithm
+should therefore be of low computational complexity to allow
+for in-vehicle deployment.
+In this paper, a framework for robust and runtime-efﬁcient
+visual odometry is proposed. The proposed framework inte-
+grates runtime-efﬁcient strategies with robust techniques at
+each of the core stages in visual odometry. Speciﬁcally, a
+pruning method is employed to reduce the computational
+complexity of KLT feature detection without compromising on
+the quality of detected features. Ego-motion prior is leveraged
+to determine a better initial position for KLT tracking process
+to increase the chance for correct convergence, which signif-
+icantly increases the proposed technique's robustness in chal-
+lenging environments. The robustness of the proposed tech-
+nique is further enhanced by adopting an automatic tracking
+failure detection scheme during feature tracking. In addition,
+an adaptive and small integration window for each feature is
+set during tracking based on its distance from the ego-vehicle.
+This signiﬁcantly reduces the computational complexity. Fi-
+nally, we apply an early RANSAC termination condition in
+the Gauss-Newton based motion estimation process to further
+increase the algorithmic robustness and reduce the algorithmic
+computation time. Experimental results based on the KITTI
+dataset show that the proposed technique outperforms state-of-
+the-art visual odometry methods by producing more accurate
+ego-motion estimation in notably shorter amount of time.
+This paper is organized as follows: Section II reviews the
+existing works in visual odometry. Section III formulates
+visual odometry as a mathematical minimization problem. The
+proposed algorithm is presented in Section IV. A comprehen-
+sive evaluation of the proposed method with existing state-of-
+the-art methods using the well-known KITTI odometry dataset
+is presented in Section V, and Section VI concludes the paper.
+II. RELATED WORKS
+The core stages of visual odometry typically consist of
+feature correspondences setup that relies on feature detection
+and feature tracking, and motion estimation that solves a math-
+ematical optimization problem on the set of correspondences
+[5], [6]. Depending on the dimension of the features, existing
+techniques can be divided into two categories: monocular
+vision based [3], [4], [7]–[10] and stereo vision based [4],
+[11]–[16]. In addition, robust estimation methods like iterative
+outliers removal [11], [16] or RANSAC [17], [18] have been
+utilized to increase the accuracy of motion estimation in
+the presence of noisy or erroneous feature correspondences.
+Interested readers are referred to [5], [6] for a comprehensive
+literature review on visual odometry. In this paper, we focus on
+stereo vision based methods for visual odometry and we will
+summarize the related state-of-the-art works in this section.
+Many works have been submitted to the KITTI odometry
+platform [19] for evaluation. The work presented in [11]
+outperforms all other visual odometry methods in terms of
+translational and rotational accuracy till 2015. The work in
+[11] uses the whole history of the tracked feature points
+to compute the ego-motion in order to reduce the motion
+drift caused by accumulation of feature tracking errors from
+frame to frame and avoid using of the highly complex bundle
+adjustment technique [20], [21]. In their technique, the key
+idea is to integrate the features measured and tracked over
+all past frames into a single and improved estimate. An
+augmented feature set, obtained by the sample mean of all
+previous measured features which are transformed into the
+current frame, is added to the optimization formula.
+The work in [11] is able to reduce pose error compared
+to their earlier work, however this is achieved at the expense
+of huge computational complexity. The use of complex fea-
+ture detector Harris [22] and feature descriptor FREAK [23]
+contributes to high time complexity. Up to 4,096 features
+are tracked between consecutive frames. The key-points are
+matched between consecutive frames by brute-force combina-
+torial search. In their implementation, multi-threaded program-
+ming technology OpenMP is enabled and algorithm hotspot is
+optimized using the Intel Performance Primitives library. The
+speed of the method in [11] is 0.05 seconds/frame on a 2.7
+GHz CPU with 4 cores.
+On the other hand, the work in [12] achieves one of the
+lowest computational complexities for visual odometry in the
+KITTI odometry platform [19]. This is accomplished with the
+adoption of a much simpler feature detector and descriptor.
+Feature locations are found by extracting the maximum or
+minimum Sobel ﬁlter response. In addition, instead of using
+the complex rotation and scale invariant feature descriptors
+like SURF [24] or SIFT [25], features are described by
+concatenating the response over a sparse set of 16 locations
+within the 11*11 block and compared by using the sum of
+absolute differences (SAD) error metric. Finally, the inputs to
+the visual odometry algorithm are circular features matched
+between four images, namely the left and right images of
+two consecutive frames. Although the work in [12] is able
+to achieve real-time performance of 0.05 seconds/frame on a
+single CPU core @2.5 Hz, its accuracy is far from satisfactory.
+In particular, the average translational error and rotational error
+are 2.44% and 0.0114 [deg/m] respectively.
+A. Main Contributions of Our Work
+The existing solutions fail to achieve a good balance be-
+tween high accuracy and low computational complexity [19].
+The proposed work aims to bridge this gap with a solution
+for visual odometry that can produce accurate results in short
+computation time. Hence, an ego-motion estimation frame-
+work that integrates suitable runtime-efﬁcient strategies with
+robust techniques at various core stages in visual odometry is
+proposed. The main contributions of the proposed method are
+as follow:
+1) A fast corner detector with pruning technique that re-
+duces the computational complexity of detecting high
+quality corner features.
+2) A robust and compute-efﬁcient feature tracker that em-
+ploys smooth motion constraint, adaptive window tech-
+nique and automatic tracking failure detection scheme.
+is
+based on Gauss-Newton optimization scheme with early
+RANSAC termination condition.
+3) A robust and fast motion estimation method that
+4) The above contributions are integrated into a framework
+for fast and robust visual odometry. Experimental results
+on the widely known KITTI evaluation platform [19]
+demonstrate that the proposed framework can produce
+accurate ego-motion estimation. In terms of accuracy,
+the proposed algorithm is ranked highly in the KITTI
+odometry evaluation platform. In addition, the proposed
+algorithm performs notably faster than most of the
+techniques in the KITTI odometry evaluation platform.
+III. PROBLEM FORMULATION
+A camera installed on a moving vehicle is subjected to six
+degrees of freedom (DOF). That is, it can be translated in three
+perpendicular x-y-z axes, denoted as (tx, ty, tz) (in meter), and
+rotated about the three axes, denoted as (rx, ry, rz) (in radian).
+The goal of visual odometry is to obtain the value of X =
+(tx, ty, tz, rx, ry, rz)T at each discrete time instance.
+The motion of a camera installed on the moving vehicle
+from the previous frame In−1 to current frame In can be
+represented by the matrix Mn ∈ R4∗4 [26] as shown in Eq. 1:
+The camera pose Cn from the point of initialization can
+be obtained by concatenating all the transformations Mn as
+shown in Eq. 5. Tn in Eq. 6 represents the scene motion,
+which is the inverse of the camera motion.
+Fig. 1. Overview of the proposed visual odometry framework. The proposed framework consists of two stages. The ﬁrst stage extracts feature correspondences
+by applying a pruning technique to the KLT corner detector for feature detection and improving the KLT feature tracker with three strategies for feature
+tracking. The second stage estimates motion parameters based on Gauss-Newton optimization scheme (GNO) which is integrated with the early RANSAC
+termination condition.
+Assume that
+clidean space observed in frame In−1 are {pi
+(xi
+dences in frame In are {pi
+Then the relationship between a pair of correspondences pi
+and pi
+the
+Therefore
+=
+(tx, ty, tz, rx, ry, rz)T can be found by minimizing the
+residual function in Eq. 8, where wi is the weighting factor
+that denotes the contribution of point i to the least square
+solution.
+parameters
+Eq. 8 calculates the residual in Euclidean space. However,
+as discussed in [16], [27], stereo triangulation error can be
+highly anisotropic and correlated. As such, a recommended
+approach is to compute the residual in image space, where the
+noise level is similar for all components of the measurement
+vector:
+n in the
+image frame In. g is the triangulation equation, while h =
+g−1 is the projection function. b and f are the corresponding
+baseline and focus length.
+n)T is the projection of pi
+The aim of feature detection is to identify a set of points
+{mn−1} in frame In−1, while the aim of feature tracking is
+to identify {mn}, which are the correspondences of {mn−1}
+in frame In. Motion estimation computes the ego-motion
+parameters Xn = (tx, ty, tz, rx, ry, rz)T by solving Eq. 9.
+IV. PROPOSED ALGORITHM
+As highlighted in [11], the extraction of reliable feature
+correspondences that correspond to the static scene plays
+an essential role in the success of visual odometry. The
+KLT feature tracker [28], which consists of corner feature
+detection and tracking, is a widely accepted method for feature
+correspondence extraction [15], [29]–[32]. Although KLT has
+been shown to be one of the best feature tracker, direct
+adoption of KLT can lead to inaccurate tracking results in
+highly complex urban environments as will be shown in the
+following discussion and experimental results. In addition,
+KLT is time consuming [33]. On the other hand, the extracted
+feature correspondences may come from self-moving objects.
+Direct motion estimation based on feature correspondences
+that are contaminated with self-moving or inaccurately tracked
+features will lead to inaccurate results.
+The proposed technique aims to overcome the limitations
+of existing solutions by integrating strategies to achieve robust
+visual odometry at low computational complexity at various
+core stages of the ego-motion estimation framework. Fig.1
+shows the overview of the proposed framework. Taking the
+image sequence from the stereo rig and the corresponding
+disparity map as the input,
+the proposed visual odometry
+framework consists of the following two stages: 1) Feature
+correspondences setup, and 2) Motion estimation.
+The ﬁrst stage incorporates techniques for robust and low-
+complexity feature correspondences setup. This stage further
+consists of the following two steps: (i) Low-complexity corner
+detection with pruning, and (ii) Robust and low-complexity
+feature tracking using improved KLT tracker. For each time
+step n, corner detection is applied on the previous left image
+In−1 to extract a set of corner features {mn−1} using a pruning
+technique. The computational complexity of corner detection
+is signiﬁcantly reduced due to the pruning process without
+compromising on the quality of the extracted corner features.
+n−1 in {mn−1}, its correspondence
+Next, for each feature mi
+mi
+n in current left image In is identiﬁed using an improved
+KLT tracker. Smooth motion constraint is utilized to determine
+a better starting point for KLT tracking process, which leads to
+fast and accurate convergence during the tracking. In addition,
+an adaptive window technique, which is based on the distance
+of the feature from the ego-vehicle and the smooth motion
+constraint, is employed to track each feature. This signiﬁcantly
+reduces the runtime complexity. Finally, an automatic tracking
+failure detection scheme is adopted during feature tracking to
+further increase the robustness of the method.
+The second stage incorporates techniques for robust and
+fast motion estimation. Given the set of feature correspon-
+dences {mn−1} and {mn},
+the motion parameters Xn =
+(tx, ty, tz, rx, ry, rz)T are computed by solving the function
+formulated in Eq. 9 using Gauss-Newton method. In order
+to increase the robustness and also decrease the computation
+time, RANSAC with an early termination condition is enabled
+to remove the outliers that do not exhibit coherent movement.
+In the following sub-sections, detailed descriptions of each
+stage for the proposed framework are provided.
+A. Low Complexity Corner Detection with Pruning
+In order to detect corners, KLT computes a corner response
+λ2 corresponds to the minimum eigen-value of the matrix
+A, which approximates a local auto-correlation function:
+Where Ix and Iy are the horizontal and vertical gradients
+respectively, and α(x) is the weight function, which can be a
+simple box window or Gaussian window. The eigen-values λ1
+and λ2 of A (where λ1 >= λ2) represent the two dominant
+directions of intensity change.
+A threshold is applied on the corner response λ2 to remove
+the obvious non-corners. The rest of the pixels are then ranked
+in descending order of their corner response and the pixels
+with the highest corner response are selected as corners after
+applying non-maximal suppression.
+In order to identify good features, KLT computes the
+complex corner measure λ2 for each pixel and chooses the
+ones with high λ2 value. However, the obvious non-corners,
+i.e. the smooth and low curvature regions, constitute a large
+majority of the image in most cases. This incurs a lot of
+computational redundancies when the complex corner measure
+for the obvious non-corners are computed. As such, a pruning
+method to select only the most relevant features for tracking
+is employed. The pruning method is explained as follows.
+It can be observed that λ2 is heavily inﬂuenced by the term
+(ac− b2) as the two (a + c) terms get cancelled out. Hence the
+goal of identifying pixels with large λ2 can be simpliﬁed as
+one that identiﬁes pixels with large (ac − b2). In addition, in
+order to maximize (ac− b2), the ﬁrst term ac should be large.
+In other words, pixels that have small ac values are less likely
+to be good features.
+Based on the analysis above, when applying an appropriate
+threshold to discard pixels with low ac values, the remaining
+pixels contain the ﬁnal good KLT corners. Fig. 2(b) shows
+the corner candidates selected by applying threshold = 0.05 *
+max(ac).
+y terms in the a and c value
+can be approximated with the absolute values of Ix and Iy
+respectively as follows:
+This eliminates the multiplication operations involved in the
+squared gradients. As such, pixels that have high a(cid:48)c(cid:48) values
+will also have high ac values and therefore are highly likely
+to be good KLT corners. Fig. 2(c) shows that the a(cid:48)c(cid:48) map
+does not lose the distinctive corner regions. In addition, as
+shown in Fig. 3, when the threshold for a(cid:48)c(cid:48) map is reduced,
+distinctive corner and edge features are released before texture
+and ﬂat regions. Hence, a(cid:48)c(cid:48) can be used as a corner indicator
+measure as it can effectively distinguish the corner regions
+from the non-corner regions.
+Therefore, as illustrated in Algorithm 1, instead of comput-
+ing the complex corner measure as formulated in Eq. 12 for
+every pixel, a much simpler corner candidate indicator a(cid:48)c(cid:48)
+as formulated in Eq. 15 is utilized as a pruning measure to
+remove the non-corner regions quickly and generate a small
+set of corner candidates. The ﬁnal KLT corner measure is
+computed only on the small set of corner candidates and
+corners with highest measure value are chosen. By doing this,
+the computational complexity for corner detection is reduced
+and the quality of the extracted features is not compromised.
+Readers are referred to [34] for a detailed discussion.
+We would like to point out that compared to the Sobel edge
+key points which are calculated based on the sobel response
+over only a single point, the pruning metric a(cid:48)c(cid:48) is the product
+of the value of a(cid:48) and c(cid:48) that are calculated based on the
+sum of sobel response over their respective neighborhood
+window. A point that has a high sobel response may not
+necessarily have a large a(cid:48)c(cid:48) value and vice versa. The pruning
+metric a(cid:48)c(cid:48) has a tighter association with the conventional KLT
+corner measure and it ensures that corners are detected in the
+same order as the conventional KLT corner detection method,
+that is, corners with higher KLT corner quality are detected
+earlier than those that are of lower corner quality. As such
+the proposed pruning technique enables rapid corner detection
+without losing distinctive KLT corners.
+B. Feature Tracking using Improved KLT Tracker
+Mathematically, the KLT tracking process is formulated as
+a least square problem to minimize a residual function over
+an integration window as deﬁned in Eq. 16.
+Illustration of corner detection using different metrics: (a) Original image; (b) Corner candidates selected using ac at threshold=0.05*max(ac); (c)
+Where In−1(ux, uy) and In(ux + dx, uy + dy) are the
+correspondence located in image In−1 and In respectively.
+d = [dx
+dy]T is the optical ﬂow for feature In−1(ux, uy). r
+is the radius of the integration window.
+The way KLT solves Eq. 16 using an iterative Newton
+Raphson method consists of a sequence of search operations
+that try to ﬁnd a image patch with size [2r+1, 2r+1] in image
+In such that there is minimum intensity difference between it
+and the image patch in image In−1 of size [2r + 1, 2r + 1]
+with feature In−1(ux, uy) in the center. As observed in [35],
+starting the search process in the position (ux, uy) in image
+In, a small integration window size is preferred to increase
+the accuracy by avoiding smoothing out the image details.
+However, the integration window must also be sufﬁciently
+large to cater to the displacement of feature that undergoes
+large motion to increase robustness. In order to obtain a good
+tradeoff between local accuracy and robustness when choosing
+the integration window size, the pyramidal implementation of
+KLT has been introduced in [35]. However, this approach is
+time-consuming as tracking needs to be performed at different
+levels of the pyramid. In addition, we will show in the
+following that the pyramidal implementation of KLT can still
+lead to inaccurate results in highly complex urban driving
+environment.
+In order to evaluate the accuracy of the conventional KLT
+in complex urban driving environment, an experiment
+is
+conducted based on the KITTI's stereo/ﬂow benchmark [19],
+which provides 194 training images with ground truth ﬂow
+ﬁelds and disparity maps. For each consecutive pair of images,
+up to 500 good features are extracted and tracked using
+OpenCV's implementation of KLT. The computed optical
+ﬂows are compared with the ground truth. Fig. 4 illustrates the
+distribution of estimated ﬂow error for all features in the order
+of descending corner measure for one of the image pairs. It can
+be observed that the conventional KLT results in high tracking
+error even for the features with high quality. The tracking error
+becomes more prominent when the feature quality decreases.
+This indicates that the conventional KLT for feature tracking
+is highly susceptible to noise.
+1) Improving Tracking Robustness using Smooth Motion
+Constraint: In the conventional KLT tracker, the optimization
+process as indicated in Eq. 16 starts the search of a feature in
+the current frame at its same position in the previous frame.
+This can easily lead to KLT tracking failure if the starting
+point is too far from the convergence region. Such cases are
+common in scenarios where ego-mtion is large or when the
+features are not distinctive enough from their surroundings. We
+due to the fact that it starts the search for A's correspondence at
+A3 (the same position as A in the previous image). Since A3 is
+closer to A2 and the local patches around A2 and A are largely
+similar, the KLT algorithm converges to A2 and terminates
+the search. This demonstrates that the initial position for the
+correspondence search signiﬁcantly affects the accuracy of
+KLT.
+The authors in [33] also observed the importance of setting
+a proper starting point for KLT tracker. To ensure that the
+starting point falls as close as possible to the convergence
+point, the work in [33] relies on inertial sensor that is at-
+tached to the camera. However, this requires additional effort
+for sensor calibration and synchronization. Unlike [33], the
+proposed method determines a better starting point for KLT
+with the aid of the ego-motion estimated in previous step. In
+general, when the frame rate is high enough, a smooth motion
+pattern is presented between consecutive frames [15]. That
+is, the motion at time n is highly likely to be similar to the
+immediate previous motion at time n-1. Such phenomenon is
+referred to as Smooth Motion Constraint (SMC) [15].
+Let Mn−1 denote the motion estimated from frame In−2
+to frame In−1. When frame In is available, by projecting the
+features detected in frame In−1 to frame In using the previous
+motion Mn−1, the projected location in frame In is highly
+likely to reside in the convergence region of KLT and therefore
+serves as a good starting point for KLT tracking process. We
+will describe this phenomenon again with the help of Fig. 5.
+By transforming A with the previously estimated motion and
+projecting it onto the current image, the new position locates
+in A4, which is much closer to the ground truth. Using A4 as
+the starting point, KLT is able to adapt to the motion in the
+current frame and ﬁnally correctly converge to A1.
+There exist works that utilize SMC for ego-motion compu-
+tation in a different manner from the proposed method. For
+example, the work in [15] utilizes SMC to remove outliers
+that exhibit incoherent movement. The work in [11] utilizes
+SMC to generate an additional set of augmented features
+that try to complement the original features. The work in
+[36] utilizes camera motion to deﬁne a speciﬁc search region
+in the image for normalized cross-correlation based feature
+matching. In order to avoid the danger that the predicted search
+region misses the target, a computationally complex two-step
+projection operation together with uncertainty calculation is
+performed in [36]. Moreover, an additional step is required
+for re-localization in the presence of high uncertainty. Unlike
+existing works, the proposed method utilizes SMC to increase
+the chance of correct convergence for KLT tracking process
+by determining a better starting point.
+2) Improving Tracking Accuracy and Efﬁciency Using
+Adaptive Integration Window Technique: The size of the
+integration window for KLT tracker will affect not only the
+tracking accuracy but also the computational complexity. The
+conventional KLT tracker employs uniform window size and
+pyramid levels for all features, which easily violates the fact
+that a small window size is preferred to avoid smoothing out
+the details contained in the images while a large integration
+window is required to handle large motions.
+In order to determine a suitable window size for KLT
+Fig. 4. Error distribution of optical ﬂows estimated using conventional KLT
+algorithm.
+Fig. 5. An example of road scenario: Features that are detected in previous
+frame (a) are tracked in current frame (b).
+will explain such a scenario with the help of Fig. 5. Assume
+that feature A has been detected in the previous frame. Its
+ground truth correspondence in the current image is A1 but
+the conventional KLT tracker results in A2. The reason that
+the KLT tracker fails in detecting the correct correspondence is
+Algorithm 1 Pruning based Corner Detector
+Input: Image I, feature quality threshold t
+Output: A set of corners {mi} in image I
+obtain corner candidate set K;
+/* Corner Response Function */
+Compute corner response C = λ2;
+candidate set Q;
+10: Sort Q in descending order of C;
+11: Apply non-maximal suppression to obtain {mi}.
+Fig. 8. Error distribution of optical ﬂows estimated using KLT with automatic
+tracking failure detection.
+failures, an automatic tracking failure detection scheme that is
+presented in [37] is adopted. As illustrated in Fig. 7, the basic
+idea is to check the forward-backward error during tracking.
+That is, forward and backward tracking is performed and the
+discrepancy between the starting point of the forward trajec-
+tory and the end-point of the backward trajectory is computed.
+If the forward-backward error is larger than some threshold,
+the corresponding feature pair is regarded as wrong setup
+and is therefore rejected. Fig. 8 shows the new distribution
+of estimated ﬂow error after applying the automatic tracking
+failure detection scheme. It can be observed that the majority
+of features with high tracking error in Fig. 4 has been removed.
+Based on the discussion above, we propose to improve
+the conventional KLT tracker as follows: 1) improve the
+tracking robustness by determining a better starting point
+for KLT tracking process with the aid of SMC; 2) improve
+tracking accuracy and efﬁciency by setting the integration
+window adaptively; 3) further improve the tracking robustness
+by enabling the automatic tracking failure detection scheme.
+The improved KLT feature tracking method is outlined in
+Algorithm 2.
+C. Robust Gauss-Newton based Motion Estimation with Early
+RANSAC Termination Condition
+Given the set of feature correspondences, motion estimation
+computes the six motion parameters by solving the nonlinear
+least square problem as deﬁned in Eq. 9. The Gauss-Newton
+optimization algorithm is chosen to solve this residual function
+as it avoids computing the second derivatives.
+Starting with an initial estimate X0,
+the Gauss-Newton
+algorithm iteratively converges to a local minimum through
+Eq. 17, where f is the set of residual functions and Jf ∈ R2k∗6
+represents the Jacobian matrix.
+Xs+1 = Xs − (JT
+Eq. 17 is repeatedly computed until the residual ε in Eq.
+20 is smaller than some predeﬁned threshold.
+Fig. 6. Relationship between disparity and optical ﬂow: pixels at a near
+distance from the camera are prone to large motion and pixels at a far distance
+are prone to small motion.
+Fig. 7. Automatic tracking failure detection scheme. Figure from [37].
+feature tracking, the relationship between the optical ﬂow and
+the corresponding disparity ﬁeld has been analyzed using the
+KITTI's ﬂow/stereo benchmark. It can be observed from Fig. 6
+that pixels at a near distance from the camera are prone to large
+motion and pixels at a far distance are prone to small motion.
+Inspired by this idea, an adaptive window size for the KLT can
+be employed based on the disparity information. For features
+in the near region, a larger window size or more pyramid
+levels are used. For features in the far region, a small window
+size or lesser pyramid levels are employed. This scheme helps
+to avoid the deployment of unnecessary large window size
+or pyramid levels for the features that undergo small motion,
+which will therefore improve the accuracy of the KLT tracker
+and also the compute efﬁciency.
+In addition, large KLT window size or more pyramid levels
+which are typically required for features undergoing large
+motion can be further avoided by utilizing SMC. As shown in
+Fig. 5, given the feature B detected in the previous frame, its
+ground truth correspondence is B1 in the current frame. The
+initial search position employed by the conventional KLT is
+at B2, which is far from B1. As such, a large window size
+is needed to track feature B correctly. However, following the
+strategy proposed in previous sub-section to identify the initial
+point with the aid of SMC, the initial position to track feature
+B by the proposed method is set at B3. It can be observed that
+B3 is close to B1 and the required window size and pyramid
+levels can therefore be set to a smaller value.
+3) Improving Tracking Robustness using Automatic Track-
+ing Failure Detection Scheme: As pointed out in [15], track-
+ing error is unavoidable. In order to identify such tracking
+Algorithm 2 Improved KLT Tracker
+Input: Consecutive images In−1 and In;
+Detected feature set {mi
+Previous ego-motion Mn−1;
+Disparity maps Dn−1 and Dn;
+Calibrated camera parameters.
+Output: Tracked feature correspondences {mi
+else if di
+end if
+else
+integration window size r = 5;
+integration window size r = 7;
+- Generate the new position of mi
+tracker.
+n in frame In do
+integration window size r = 5;
+else if di
+end if
+else
+integration window size r = 7;
+n by applying the KLT
+- Generate the new position of oi
+KLT tracker.
+34: end for
+35: Reject feature correspondences where dist(mi
+The feature correspondences are usually contaminated with
+outliers. This is typically exhibited in feature correspondences
+extracted from moving objects such as pedestrians or vehicles.
+In addition, some feature points will be wrongly tracked. All of
+these noisy correspondences contribute to outliers and should
+be eliminated from the motion computation in order to increase
+the robustness of the estimated motion. In order to ensure
+robust estimation, the RANSAC algorithm [17] is adopted to
+identify outliers. The basic idea of RANSAC is to compute
+a ﬁtting model from a set of samples selected randomly and
+check the number of points that are in consensus with the
+current estimated ﬁtting model, i.e. inliers. This process is
+iteratively repeated until the maximum number of iterations
+has elapsed. Finally, the ﬁnal model parameters are estimated
+using the largest set of inliers.
+Instead of setting the maximum number of iterations man-
+ually, it has been pointed out in [17] that the number of
+iterations for RANSAC needed to achieve a desired accuracy
+requirement can be theoretically derived as shown below:
+RAN SACiter =
+Where n is the number of minimum points needed for
+estimating a model, w is the percentage of inliers in the data
+points, p is the requested probability of success. Due to the
+formulation adopted in Eq. 9, at least three points are needed
+for estimating a model, therefore n = 3. It can be observed
+from Eq. 21 that RAN SACiter is dynamically determined
+based on the number of inliers found in current iteration. This
+means that once a set of inliers that are large enough are
+identiﬁed, there is no need to continue repeating the RANSAC
+sampling operation anymore. We refer to this phenomenon as
+Early RANSAC Termination Condition (ERTC). The proposed
+method has employed strategies to increase the accuracy of the
+extracted feature correspondences in previous sections. With
+the accurate feature correspondences provided from Stage 1,
+the Gauss-Newton optimization with ERTC enabled is able to
+converge faster.
+dences {mi
+estimation is given in Algorithm 3 and Algorithm 4.
+Based on the above discussion, given the set of correspon-
+n}, the method proposed for motion
+V. EVALUATION
+In this section, the proposed method will be thoroughly
+evaluated using a large scale benchmark. We will ﬁrst describe
+the benchmark, evaluation criteria and baseline algorithms
+that are adopted in this experiment. We will then evaluate
+the proposed algorithm in terms of accuracy and computation
+time by comparing the proposed algorithm with the state-of-art
+baseline algorithms.
+A. Experimental Setup
+Experiments are conducted based on the widely known
+KITTI odometry evaluation platform [19]. The KITTI's odom-
+etry benchmark consists of 22 stereo 1344*391 sequences,
+where the ﬁrst 11 sequences (00-10) are provided with ground
+truth trajectories for training and the remaining 11 sequences
+do not have ground truth. These 22 sequences were collected
+from stereo cameras installed in a vehicle that was driven
+around Karlsruhe, Germany. This benchmark covers a variety
+of road scenarios and provides a very challenging test-bed.
+Some samples of the benchmark are illustrated in Fig. 9.
+Algorithm 3 Motion Estimation
+Input: Feature correspondences {mi
+/* RANSAC Iterative Reﬁnement */
+{Ci} ← 3 correspondences selected randomly;
+X = GN O({Ci});
+Calculate current inlier set incurr based on X;
+if incurr.size > α.size then
+Algorithm 4 Gauss-Newton Optimization Method (GNO)
+Input: Feature correspondences {Ci};
+Successful probability p;
+Maximum Gauss-Newton iteration GNmax;
+Residual threshold tres;
+/* Start Gauss-Newton Minimization Circle */
+Successfully converged;
+end if
+odometry evaluation platform. They are therefore chosen as
+the baseline algorithms in this paper. In the following, we
+will denote the work from [11] as MFI and the work from
+[12] as VISO2-S. In addition, the proposed work is capable of
+rapidly extracting a set of accurate feature correspondences by
+improving the KLT feature tracker. In order to illustrate this
+improvement, the proposed algorithm will also be compared
+to the visual odometry algorithm that uses conventional KLT
+with and without automatic tracking failure detection ability.
+These baseline algorithms are denoted as FB-KLT and ORG-
+KLT respectively.
+The differences between the baseline algorithms and the
+proposed algorithm are highlighted in Table I.
+2) Implementation Details: For the proposed, ORG-KLT
+and FB-KLT algorithms, up to 500 features are extracted for
+each frame and tracked in the consecutive frame. The required
+disparity information for features are provided by the OpenCV
+implementation of the Semi-Global Matching algorithm [38].
+We use the default parameter settings in OpenCV and do not
+enable the multi-threaded programming functionality inside
+OpenCV. The proposed algorithm, ORG-KLT and FB-KLT are
+implemented in C++ on a 3.5GHz CPU system. It is note-
+worthy that unlike the implementation of MFI, we currently
+do not employ any code optimization technique like multi-
+threaded programming or GPU programming. For MFI and
+VISO2-S, we directly use the experimental ﬁgures reported in
+their papers.
+B. Accuracy Evaluation
+First, an extensive quantitative evaluation between ORG-
+KLT, FB-KLT and the proposed algorithm is conducted based
+on the 11 training sequences. Fig. 10 and Fig. 11 show the
+ground-truth and estimated vehicle's trajectories from ORG-
+KLT, FB-KLT and the proposed algorithm for these 11 training
+sequences. This provides an intuitive way to visualize the eval-
+uation results. It can be observed that the estimated trajectories
+from the proposed algorithm are closer to the ground truth than
+the ones from ORG-KLT and FB-KLT.
+In particular, interesting phenomenons can be observed from
+Fig. 10(b) corresponding to Sequence 01, where there exists a
+lot of challenging scenarios in the mid trajectory segments
+as discussed in Section IV.B. Firstly,
+it can be observed
+The evaluation criteria suggested by KITTI [19] is adopted,
+that is, translational and rotational errors for all possible
+subsequences of length (100, ..., 800) meters. Translational
+errors are measured in percentage while rotational errors are
+measured in degrees per meter. The average of these errors
+are used to compare the performance of various approaches in
+the KITTI evaluation platform.
+1) Baseline Algorithms: Many works have been submitted
+to the KITTI platform for evaluation. As discussed in Sec-
+tion II, the work [11] outperforms all other visual odometry
+methods in terms of accuracy till 2015 and the work [12]
+has one of the lowest computational complexity in the KITTI
+Fig. 9. Some samples of the benchmark.
+OVERVIEW OF THE BASELINE AND PROPOSED ALGORITHMS
+TABLE I
+Motion Estimation
+Feature Correspondence Setup
+Feature Detection
+Feature Tracking
+MFI
+Harris+FREAK
+Minima and maxima of blob
+and corner ﬁlter responses +
+concatenation of sobel ﬁlter re-
+sponses based descriptor
+Feature matching by brute-force
+combinatorial search
+SAD dissimilarity metric based
+two-passes circle feature match-
+ing
+ORG-KLT
+Conventional KLT corner detec-
+tor
+conventional KLT tracker
+FB-KLT
+Proposed
+Conventional KLT corner detec-
+tor
+conventional KLT tracker with
+automatic tracking failure de-
+tection ability
+KLT corner detector with prun-
+ing
+Improved KLT tracker
+Optimization Scheme
+Newton method based mini-
+mization of re-projection resid-
+ual in left image space
+Gauss-Newton method based
+minimization of
+re-projection
+residual in both of left and right
+image space + Kalman Filter
+Reﬁnement
+Gauss-Newton method based
+minimization of
+re-projection
+residual in left image space
+Gauss-Newton method based
+minimization of
+re-projection
+residual in left image space
+Gauss-Newton method based
+minimization of
+re-projection
+residual in left image space
+Robust Estimation
+Iteratively reject outliers whose
+re-projection residual is larger
+than some threshold
+RANSAC
+RANSAC with early termina-
+tion condition
+RANSAC with early termina-
+tion condition
+RANSAC with early termina-
+tion condition
+that the reconstructed paths from all of ORG-KLT, FB-KLT
+and the proposed algorithm deviate from the ground truth at
+approximately one quarter mark along the full trajectory and
+persist for certain amount of time. At approximately halfway
+mark along the full trajectory, the reconstructed paths from
+ORG-KLT and FB-KLT deviate again. This means that the
+proposed method is more robust than ORG-KLT and FB-KLT
+in dealing with challenging environment. Secondly, although
+the proposed method fails at position A, the reconstructed
+path from the proposed algorithm shows the same shape as
+the ground-truth at the end. This means that the proposed
+algorithm is able to automatically recover from wrong previous
+motion estimation when the scene is not challenging. The
+reason that the proposed algorithm is capable of recovering
+from wrong motion estimation in scenarios where the scene is
+not challenging is due to the fact that the utilization of SMC in
+the proposed method aims to increase the chance that the start-
+ing search point for KLT falls within the convergence region,
+thereby enabling the KLT tracker to more likely converge to
+the true global minimum. However, as pointed out by [33],
+KLT tracking process is tolerant to an initial parameter error
+as long as the initial point falls within the convergence region.
+Therefore, if the initial position guided by wrong motion still
+falls in the convergence region, KLT is still able to converge
+correctly and the proposed method is therefore able to recover
+from wrong previous motion estimation.
+In addition, the average translational and rotational errors
+relative to the ground truth for the proposed algorithm, ORG-
+KLT and FB-KLT for the 11 training sequences are pre-
+sented in Fig. 12. On average, the translation and rotation
+errors for ORG-KLT, FB-KLT and the proposed algorithm
+are (1.7934%, 0.0084[deg/m]), (1.3974%, 0.0061[deg/m]) and
+(0.9768%, 0.0056[deg/m]). Therefore, the proposed algorithm
+is 46% better than ORG-KLT and 30% better than FB-KLT.
+This clearly demonstrates that the three strategies, i.e. smooth
+motion constraint, adaptive integration window technique and
+automatic tracking failure detection scheme in the proposed
+algorithm lead to signiﬁcant improvement in the visual odom-
+etry accuracy.
+We have also submitted the results of the proposed method
+for the 11 test sequences to the KITTI odometry evaluation
+platform. The average translation and rotation errors relative to
+the ground truth for proposed algorithm, MFI and VISO2-S for
+the 11 test sequences are presented in Fig. 13. In addition, the
+corresponding estimated trajectories from proposed algorithm,
+MFI and VISO2-S over sequences 11-15 (the website only
+provide the computed trajectories relative to the ground-truth
+for sequences 11-15) are depicted in Fig. 14. On average,
+the translational and rotational errors for MFI, VISO2-S and
+the proposed algorithm for the 11 testing sequences are
+(1.30%, 0.0030[deg/m]), (2.44%, 0.0114[deg/m]) and (1.26%,
+0.0038[deg/m]) respectively. It can be observed that the pro-
+posed algorithm performs approximately 3% better than MFI
+and 48% better than VISO2-S. At the time of submission
+into the KITTI odometry evaluation platform, the proposed
+method was ranked in the 8th place in terms of accuracy,
+while MFI and VISO2-S were ranked in the 10th and 38th
+places respectively. Currently, the proposed method is ranked
+in 14th place in terms of accuracy, while MFI and VISO2-S
+are ranked in the 15th and 37th places respectively.
+C. Computation Time Evaluation
+included for all
+Table II shows the computation time for the proposed
+algorithm and all the four baseline algorithms. In the current
+implementation, the dense disparity map is directly provided
+for the proposed algorithm, ORG-KLT and FB-KLT. For a fair
+comparison, the computation time for disparity computation
+is not
+the ﬁve algorithms. The proposed
+algorithm has the similar running time as ORG-KLT although
+it needs to conduct one more round of feature tracking for each
+feature than ORG-KLT, and is 28% faster than FB-KLT. This
+is due to the low computational complexity strategies adopted
+in the feature correspondence setup. In addition, since robust
+techniques during the KLT tracking process and the RANSAC
+with early termination rule are employed, the set of accurate
+feature correspondences allows the Gauss-Newton process to
+converge faster.
+MFI is able to reduce pose error compared to their earlier
+work [15], [16], however this is achieved at
+the expense
+of huge computational complexity. Up to 4,096 features
+are tracked between consecutive frames. The key-points are
+matched between consecutive frames by brute-force combina-
+torial search. The computation time reported by MFI is only
+possible after they enable the multi-threaded programming
+technology OpenMP and intense code optimization using the
+Intel Performance Primitives library on 2.7 GHz CPU with 4
+cores. Finally, VISO2-S achieves a short computation time at
+the price of reduced estimation accuracy.
+The proposed method also exhibits lower computational
+complexity when compared to other methods that are recently
+submitted to the KITTI evaluation platform. For example, the
+computation time for the top three visual odometry methods
+in the KITTI platform (at the time this paper is submitted) are
+between 0.1 to 0.3 seconds/frame on 2.0Ghz or 2.5 Ghz plat-
+forms with dual cores. The computation time for the proposed
+algorithm is 0.03 seconds/frame on a 3.5GHz platform (one
+core) without utilizing any code optimization technique (e.g.
+multi-threaded programming or GPU programming). We are
+conﬁdent that the computation time of the proposed method
+will further reduce if such code optimization techniques are
+enabled.
+TABLE II
+COMPUTATION TIME COMPARISON
+Correspondences
+Extraction
+MFI
+Proposed
+Motion
+Total
+VI. CONCLUSION
+It has been shown that the proposed method for estimating
+the ego-motion of vehicle overcomes the limitations of exist-
+ing solutions by integrating runtime-efﬁcient strategies with
+robust techniques at various core stages in visual odometry.
+A novel pruning technique is adopted to notably reduce the
+computational complexity of detecting corner features without
+compromising on the quality of the extracted corner features.
+A robust and compute-efﬁcient KLT tracker is proposed to
+facilitate the generation of the feature correspondences in a
+robust and runtime efﬁcient way. The accuracy of extracted
+feature correspondences is improved by leveraging ego-motion
+prior to determine a better initial point for fast and accurate
+feature convergence during tracking and incorporating an auto-
+matic tracking failure detection scheme to exclude the feature
+correspondences with large tracking error. In addition, the
+computational complexity of the conventional KLT has been
+improved by setting the integration window size adaptively.
+With the accurate feature correspondences provided, Gauss-
+Newton optimization scheme supported by an early RANSAC
+termination condition is shown to converge faster in the motion
+estimation process. The above contributions are integrated into
+a framework for fast and robust visual odometry. The exper-
+imental results based on a widely used evaluation platform
+clearly demonstrate the advantages of the proposed framework
+over existing state-of-the-art solutions for robust and runtime-
+efﬁcient visual odometry.
+REFERENCES
+[9] J.-P. Tardif, Y. Pavlidis, and K. Daniilidis, “Monocular visual odometry
+in urban environments using an omnidirectional camera,” in 2008
+IEEE/RSJ International Conference on Intelligent Robots and Systems.
+IEEE, 2008, pp. 2531–2538.
+[11] H. Badino, A. Yamamoto, and T. Kanade, “Visual odometry by multi-
+frame feature integration,” in Proceedings of the IEEE International
+Conference on Computer Vision Workshops, 2013, pp. 222–229.
+[14] B. Kitt, A. Geiger, and H. Lategahn, “Visual odometry based on
+stereo image sequences with ransac-based outlier rejection scheme.” in
+Intelligent Vehicles Symposium, 2010, pp. 486–492.
+[18] D. Nist´er, “Preemptive ransac for live structure and motion estimation,”
+Siew-Kei Lam (M03) received his BASc, MEng
+and PhD from Nanyang Technological University
+(NTU), Singapore. He is currently an Assistant Pro-
+fessor in School of Computer Engineering (SCE),
+NTU and his research investigates methods for re-
+alizing custom computing solutions in embedded
+systems. He has published over 75 international
+refereed journals and conferences in design method-
+ologies for heterogeneous and reconﬁgurable sys-
+tems, embedded vision and autonomous systems,
+and high-speed computer arithmetic.
+Thambipillai Srikanthan (SM92) joined Nanyang
+Technological University (NTU), Singapore in 1991.
+At present, he holds a full professor and joint
+appointments as Director of a 100 strong Centre
+for High Performance Embedded Systems (CHiPES)
+and Director of the Intelligent Devices and Systems
+(IDeAS) cluster. He founded CHiPES in 1998 and
+elevated it to a university level research centre in
+February 2000. He has published more than 250
+technical papers. His research interests include de-
+sign methodologies for complex embedded systems,
+architectural translations of compute intensive algorithms, computer arith-
+metic, and high-speed techniques for image processing and dynamic routing.
+[26] R. Hartley and A. Zisserman, Multiple view geometry in computer vision.
+Cambridge university press, 2003.
+[27] G. Sibley, L. Matthies, and G. Sukhatme, “Bias reduction and ﬁlter
+Springer
+[30] F. Erbs, B. Schwarz, and U. Franke, “From stixels to objectsa conditional
+random ﬁeld based approach,” in Intelligent Vehicles Symposium (IV),
+2013 IEEE.
+Meiqing Wu (M16) received M.S. degree in Com-
+puter Engineering from Peking University, China in
+2009. She is currently working toward the Ph.D.
+degree in the School of Computer Engineering in
+Nanyang Technological University, Singapore.
+Her current research interests include stereo vi-
+sion, motion analysis, object detection and tracking
+for urban trafﬁc scene understanding.
+Fig. 10. Reconstruction of paths from ORG-KLT,FB-KLT and Proposed algorithm for Sequences 00-05.
+Fig. 11. Reconstruction of paths from ORG-KLT,FB-KLT and Proposed algorithm for Sequences 06-10.
+Fig. 12. Average translational and rotational error for ORG-KLT, FB-KLT and Proposed algorithm over sequences 00-10. The proposed algorithm is 46%
+better than ORG-KLT and 30% better than FB-KLT.
+Fig. 13. Average translational and rotational error for MFI, VISO2-S and Proposed algorithm over Sequences 11-21. The proposed algorithm performs 3%
+better than MFI and 48% better than VISO2-S.
+Fig. 14. Reconstruction of paths from MFI, VISO2-S and Proposed algorithm for Sequences 11-15.

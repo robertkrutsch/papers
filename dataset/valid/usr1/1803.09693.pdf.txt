@@ -1,0 +1,921 @@
+Efﬁcient Interactive Annotation of Segmentation Datasets with Polygon-RNN++
+1University of Toronto
+{davidj, linghuan, amlan, fidler}@cs.toronto.edu
+2Vector Institute
+Abstract
+Manually labeling datasets with object masks is extremely
+time consuming. In this work, we follow the idea of Polygon-
+RNN [4] to produce polygonal annotations of objects in-
+teractively using humans-in-the-loop. We introduce sev-
+eral important improvements to the model: 1) we design
+a new CNN encoder architecture, 2) show how to effectively
+train the model with Reinforcement Learning, and 3) signiﬁ-
+cantly increase the output resolution using a Graph Neural
+Network, allowing the model to accurately annotate high-
+resolution objects in images. Extensive evaluation on the
+Cityscapes dataset [8] shows that our model, which we refer
+to as Polygon-RNN++, signiﬁcantly outperforms the origi-
+nal model in both automatic (10% absolute and 16% relative
+improvement in mean IoU) and interactive modes (requiring
+50% fewer clicks by annotators). We further analyze the
+cross-domain scenario in which our model is trained on one
+dataset, and used out of the box on datasets from varying
+domains. The results show that Polygon-RNN++ exhibits
+powerful generalization capabilities, achieving signiﬁcant
+improvements over existing pixel-wise methods. Using sim-
+ple online ﬁne-tuning we further achieve a high reduction
+in annotation time for new datasets, moving a step closer
+towards an interactive annotation tool to be used in practice.
+1. Introduction
+Detailed reasoning about structures in images is a neces-
+sity for numerous computer vision applications. For exam-
+ple, it is crucial in the domain of autonomous driving to
+localize and outline all cars, pedestrians, and miscellaneous
+static and dynamic objects [1, 19, 12]. For mapping, there
+is a need to obtain detailed footprints of buildings and roads
+from aerial/satellite imagery [35], while medical/healthcare
+domains require automatic methods to precisely outline cells,
+tissues and other relevant structures [16, 11].
+Neural networks have proven to be an effective way of
+inferring semantic [6, 20] and object instance segmentation
+∗authors contributed equally
+†work done when D.A. was at UofT
+Figure 1: We introduce Polygon-RNN++, an interactive object an-
+notation tool. We make several advances over [4], allowing us
+to annotate objects faster and more accurately. Furthermore, we
+exploit a simple online ﬁne-tuning method to adapt our model from
+one dataset to efﬁciently annotate novel, out-of-domain datasets.
+information [12, 19] in challenging imagery. It is well known
+that the amount and variety of data that the networks see
+during training drastically affects their performance at run
+time. Collecting ground truth instance masks, however, is an
+extremely time consuming task, typically requiring human
+annotators to spend 20-30 seconds per object in an image.
+To this end, in [4], the authors introduced Polygon-RNN,
+a conceptual model for semi-automatic and interactive label-
+ing to help speed up object annotation. Instead of producing
+pixel-wise segmentation of an object as in existing interac-
+tive tools such as Grabcut [31], [4] predicts the vertices of
+a polygon that outlines the object. The beneﬁts of using a
+polygon representation are three-fold, 1) it is sparse (only a
+few vertices represent regions with a large number of pix-
+els), 2) it is easy for an annotator to interact with, and 3)
+it allows for efﬁcient interaction, typically requiring only a
+few corrections from the annotator [4]. Using their model,
+the authors have shown high annotation speed-ups on two
+autonomous driving datasets [8, 10].
+In this work, we introduce several improvements to the
+In particular, we 1) make a few
+Polygon-RNN model.
+changes to the neural network architecture, 2) propose a bet-
+ter learning algorithm to train the model using reinforcement
+learning, and 3) show how to signiﬁcantly increase the out-
+put resolution of the polygon (one of the main limitations of
+the original model) using a Graph Neural Network [32, 18].
+We analyze the robustness of our approach to noise, and its
+generalization capabilities to out-of-domain imagery.
+In the fully automatic mode (no annotator in the loop),
+our model achieves signiﬁcant improvements over the orig-
+inal approach, outperforming it by 10% mean IoU on
+the Cityscapes dataset [8].
+In interactive mode, our ap-
+proach requires 50% fewer clicks as compared to [4]. To
+demonstrate generalization, we use a model trained on the
+Cityscapes dataset to annotate a subset of a scene pars-
+ing dataset [43], aerial imagery [34], and two medical
+datasets [16, 11]. The model signiﬁcantly outperforms
+strong pixel-wise labeling baselines, showcasing that it in-
+herently learns to follow object boundaries, thus general-
+izing better. We further show that a simple online ﬁne-
+tuning approach achieves high annotation speed-ups on out-
+of-domain dataset annotation. Our model is released online:
+http://www.cs.toronto.edu/polyrnn/.
+Interactive annotation. Since object instance segmenta-
+tion is time consuming to annotate manually, several works
+have aimed at speeding up this process using interactive
+techniques. In seminal work, [2] used scribbles to model the
+appearance of foreground/background, and performed seg-
+mentation via graph-cuts [3]. This idea was extended by [21]
+to use multiple scribbles on both the object and background,
+and was demonstrated in annotating objects in videos. Grab-
+Cut [31] exploited 2D bounding boxes provided by the an-
+notator, and performed pixel-wise foreground/background
+labeling using EM. [26] combined GrabCut with CNNs to
+annotate structures in medical imagery. Most of these works
+operate on the pixel level, and typically have difﬁculties in
+cases where foreground and background have similar color.
+In [4], the authors used polygons instead. The main power
+of using such a representation is that it is sparse; only a few
+vertices of a polygon represent large image regions. This al-
+lows the user to easily introduce corrections, by simply mov-
+ing the wrong vertices. An RNN also effectively captures
+typical shapes of objects as it forms a non-linear sequential
+representation of shape. This is particularly important in
+ambiguous regions, ie shadows and saturation, where bound-
+aries cannot be observed. We follow this line of work, and
+introduce several important modiﬁcations to the architec-
+ture and training. Furthermore, the original model was only
+able to make prediction at a low resolution (28 × 28), thus
+producing blocky polygons for large objects. Our model
+signiﬁcantly increases the output resolution (112 × 112).
+Object instance segmentation. Most approaches to ob-
+ject instance segmentation [17, 30, 41, 39, 22, 23, 12, 1, 19]
+operate on the pixel-level. Many rely on object detection,
+and use a convnet over a box proposal to perform the label-
+ing [22, 23, 12]. In [40, 34], the authors produce a polygon
+around an object. These approaches ﬁrst detect boundary
+fragments, followed by ﬁnding an optimal cycle linking the
+boundaries into object regions. [9] produce superpixels in
+the form of small polygons which are further combined into
+an object. Here, as in [4] we use neural networks to produce
+polygons, and in particular tackle the interactive labeling
+scenario which has not been explored in these works.
+In this section, we introduce Polygon-RNN++. Follow-
+ing [4], our model expects an annotator to provide a bbox
+around the object of interest. We extract an image crop
+enclosed by the 15% enlarged box. We use a CNN+RNN
+architecture as in [4], with a CNN serving as an image fea-
+ture extractor, and the RNN decoding one polygon vertex at
+a time. Output vertices are represented as locations in a grid.
+The full model is depicted in Fig. 2. Our redesigned
+encoder produces image features that are used to predict
+the ﬁrst vertex. The ﬁrst vertex and the image features are
+then fed to the recurrent decoder. Our RNN exploits visual
+attention at each time step to produce polygon vertices. A
+learned evaluator network selects the best polygon from a set
+of candidates proposed by the decoder. Finally, a graph neu-
+ral network re-adjusts polygons, augmented with additional
+vertices, at a higher resolution.
+This model naturally incorporates a human in the loop,
+allowing the annotator to correct an erroneously predicted
+vertex. This vertex is then fed back to the model, helping the
+model to correct its prediction in the next time steps.
+3.1. Residual Encoder with Skip Connections
+Most networks perform repeated down-sampling oper-
+ations at consecutive layers of a CNN, which impacts the
+effective output resolution in tasks such as image segmen-
+tation [6, 24]. In order to alleviate this issue, we follow [7]
+and modify the ResNet-50 architecture [13] by reducing the
+stride of the network and introducing dilation factors. This
+allows us to increase the resolution of the output feature map
+without reducing the receptive ﬁeld of individual neurons.
+We also remove the original average pooling and FC layers.
+We further add a skip-layer architecture [20, 42] which
+aims to capture both, low-level details such as edges and cor-
+ners, as well as high-level semantic information. In [4], the
+authors perform down-sampling in the skip-layer architec-
+ture, built on top of VGG, before concatenating the features
+from different layers. Instead, we concatenate all the outputs
+of the skip layers at the highest possible resolution, and use
+a combination of conv layers and max-pooling operations
+to obtain the ﬁnal feature map. We employ conv ﬁlters with
+a kernel size of 3 × 3, batch normalization [15] and ReLU
+non-linearities. In cases where the skip-connections have
+Figure 2: Polygon-RNN++ model (ﬁgures best viewed in color)
+Figure 3: Evaluator Network predicting the quality of
+a polygon output by the RNN decoder
+sum of its inputs and maps it to D × D through a fully
+connected layer, giving one “attention” weight per location.
+Intuitively, we use the previous RNN hidden state to gate
+certain locations in the image feature map, allowing the RNN
+to focus only on the relevant information in the next time
+step. The gated feature map Ft is then concatenated with
+one-hot encodings of the two previous vertices yt−1, yt−2
+and the ﬁrst vertex y0, and passed to the RNN at time step t.
+First Vertex: Given a previous vertex and an implicit di-
+rection, the next vertex of a polygon is always uniquely
+deﬁned, except for the ﬁrst vertex. To tackle this problem,
+the authors in [4] treated the ﬁrst vertex as a special case and
+used an additional architecture (trained separately) to predict
+it. In our model, we add another branch from the skip-layer
+architecture, constituting of two layers each of dimension
+D × D. Following [4], the ﬁrst layer predicts edges, while
+the second predicts the vertices of the polygon. At test time,
+the ﬁrst vertex is sampled from the ﬁnal layer of this branch.
+3.3. Training using Reinforcement Learning
+In [4], the authors trained the model using the cross-
+entropy loss at each time step. However, such training has
+two major limitations: 1) MLE over-penalizes the model (for
+example when the predicted vertex is on an edge of the GT
+polygon but is not one of the GT vertices), and 2) it optimizes
+a metric that is very different from the ﬁnal evaluation metric
+(i.e. IoU). Further, the model in [4] was trained following a
+typical training regime where the GT vertex is fed to the next
+time step instead of the model’s prediction. This training
+regime, called teacher forcing creates a mismatch between
+training and testing known as the exposure bias problem [27].
+In order to mitigate these problems, we only use MLE
+training as an initialization stage. We then reformulate the
+polygon prediction task as a reinforcement learning problem
+and ﬁne-tune the network using RL. During this phase, we
+let the network discover policies that optimize the desirable,
+yet non-differentiable evaluation metric (IoU) while also
+exposing it to its own predictions during training.
+3.3.1 Problem formulation
+We view our recurrent decoder as a sequential decision mak-
+ing agent. The parameters θ of our encoder-decoder architec-
+ture deﬁne its policy pθ for selecting the next vertex vt. At
+the end of the sequence, we obtain a reward r. We compute
+Figure 4: Residual Encoder architecture. Blue tensor is fed to GNN, while
+the orange tensor is input to the RNN decoder.
+different spatial dimensions, we use bilinear upsampling be-
+fore concatenation. The architecture is shown in Fig. 4. We
+refer to the ﬁnal feature map as the skip features.
+3.2. Recurrent Decoder
+As in [4], we use a Recurrent Neural Network to model
+the sequence of 2D vertices of the polygon outlining an ob-
+ject. In line with previous work, we also found that the use of
+Convolutional LSTM [37] is essential: 1) to preserve spatial
+information and 2) to reduce the number of parameters to be
+learned. In our RNN, we further add an attention mechanism,
+as well as predict the ﬁrst vertex within the same network
+(unlike [4] which has two separate networks).
+We use a two-layer ConvLTSM with a 3 × 3 kernel with
+64 and 16 channels, respectively. We apply batch norm [15]
+at each time step, without sharing mean/variance estimates
+across time steps. We represent our output at time step t as
+a one-hot encoding of (D × D) + 1 elements, where D is
+the resolution at which we predict. In our experiments, D is
+set to 28. The ﬁrst D × D dimensions represent the possible
+vertex positions and the last dimension corresponds to the
+end-of-seq token that signals that the polygon is closed.
+Attention Weighted Features:
+In our RNN, we exploit a
+mechanism akin to attention. In particular, at time step t, we
+compute the weighted feature map as,
+where ◦ is the Hadamard product, x is the skip feature tensor,
+and h1,t, h2,t are the hidden state tensors from the two-
+layer ConvLSTM. Here, f1 and f2 map h1,t and h2,t to
+RD×D×128 using one fully-connected layer. fatt takes the
+our reward as the IoU between the mask enclosed by the gen-
+erated polygon and the ground-truth mask m. To maximize
+the expected reward, our loss function becomes
+t is the vertex sampled from
+3.3.2 Self-Critical Training with Policy Gradients
+Using the REINFORCE trick [36] to compute the gradients
+of the expectation, we have
+In practice, the expected gradient is computed using simple
+Monte-Carlo sampling with a single sample. This procedure
+is known to exhibit high variance and is highly unstable
+without proper context-dependent normalization. A natural
+way to deal with this is to use a learned baseline which is
+subtracted from the reward. In this work, we follow the self-
+critical method [29] and use the test-time inference reward
+of our model as the baseline. Accordingly, we reformulate
+the gradient of our loss function to be
+where r(ˆvs, m) is the reward obtained by the model using
+greedy decoding. To control the level of randomness in the
+vertices explored by the model, we introduce a temperature
+parameter τ in the softmax of the policy. This ensures that
+the sampled vertices lead to well behaved polygons. In our
+experiments, we set τ = 0.6.
+3.4. Evaluator Network
+Smart choice of the ﬁrst vertex is crucial as it biases the
+initial predictions of the RNN, when the model does not
+have a strong history to reason about the object to annotate.
+This is particularly important in cases of occluding objects.
+It is desirable for the ﬁrst vertex to be far from the occlusion
+boundaries so that the model follows the object of interest.
+In RNNs, beam search is typically used to prune off improb-
+able sequences (such as when the model starts to follow an
+occluding object). However, since classical beam search
+uses log probabilities to evaluate beams, it does not directly
+apply to our model which aims to optimize IoU. A point on
+an occlusion boundary generally exhibits a strong edge and
+thus would have a high log probability during prediction,
+reducing the chances of it being pruned by beam search.
+In order to solve this problem, we propose to use an
+evaluator network at inference time, aiming to effectively
+choose among multiple candidate polygons. Our evaluator
+network takes as input the skip features, the last state tensor
+of the ConvLSTM, and the predicted polygon, and tries
+to estimate its quality by predicting its IoU with GT. The
+network has two 3× 3 convolutional layers followed by a FC
+layer, forming another branch in the model. Fig. 3 depicts its
+architecture. While the full model can be trained end-to-end
+during the RL step, we choose to train the evaluator network
+separately after the RL ﬁne-tuning has converged.
+During training, we minimize the mean squared error
+(5)
+where p is the network’s predicted IoU, mvs is the mask for
+the sampled vertices and m is the ground-truth mask. To
+ensure diversity in the vertices seen, we sample polygons
+with τ = 0.3. We emphasize that we do not use this network
+as a baseline estimator during the RL training step since we
+found that the self-critical method produced better results.
+Inference: At test time, we take K top scoring ﬁrst vertex
+predictions. For each of these, we generate polygons via
+classical beam-search (using log prob with a beam-width B).
+This yields K different polygons, one for each ﬁrst vertex
+candidate. We use the evaluator network to choose the best
+polygon. In our experiments, we use K = 5. While one
+could use the evaluator network instead of beam-search at
+each time step, this would lead to impractically long infer-
+ence times. Our faster full model (using B = K = 1) runs
+at 295ms per object instance on a Titan XP.
+Annotator in the Loop: We follow the same protocol as
+in [4], where the annotator corrects the vertices in sequential
+order. Each correction is then fed back to the model, which
+re-predicts the rest of the polygon.
+3.5. Upscaling with a Graph Neural Network
+The model described above produces polygons at a reso-
+lution of D × D, where we set D to be 28 to satisfy mem-
+ory bounds and to keep the cardinality of the output space
+amenable. In this section, we exploit a Gated Graph Neural
+Network (GGNN) [18], in order to generate polygons at a
+much higher resolution. GNN has been proven efﬁcient for
+semantic segmentation [25], where it was used at pixel-level.
+Note that when training the RNN decoder, the GT poly-
+gons are simpliﬁed at their target resolution (co-linear ver-
+tices are removed) to alleviate the ambiguity of the prediction
+task. Thus, at a higher resolution, the object may have addi-
+tional vertices, thus changing the topology of the polygon.
+Our upscaling model takes as input the sequence of ver-
+tices generated by the RNN decoder. We treat these vertices
+as nodes in a graph. To model ﬁner details at a higher resolu-
+tion, we add a node in between two consecutive nodes, with
+its location being in the middle of their corresponding edge.
+We also connect the last and the ﬁrst vertex, effectively con-
+verting the sequence into a cycle. We connect neighboring
+nodes using 3 different types of edges, as shown in Fig. 5.
+GGNN deﬁnes a propagation model that extends RNNs
+to arbitrary graphs, effectively propagating information be-
+tween nodes, before producing an output at each node. Here,
+Figure 5: GGNN model: We take predicted polygon from RNN (orange
+vertices), and add midpoints (in blue) between every pair of consecutive
+vertices (orange). Our GGNN has three types of edges (red, blue, green),
+each having its own weights for message propagation. Black dashed arrows
+pointing out of the nodes (middle diagram) indicate that the GGNN aims to
+predict the relative location for each of the nodes (vertices), after completing
+propagation. Right is the high resolution polygon output by the GGNN.
+we aim to predict the relative offset of each node (vertex) at
+a higher resolution. The model is visualized in Fig. 5.
+Gated Graph Neural Network: For completeness, we
+brieﬂy summarize the GGNN model [18]. GGNN uses a
+graph {V, E}, where V and E are the sets of nodes and edges,
+respectively. It consists of a propagation model performing
+message passing in the graph, and an output model for pre-
+diction tasks. We represent the initial state of a node v as xv
+v. The basic
+and the hidden state of node v at time step t as ht
+recurrence of the propagation model is
+The matrix A ∈ R|V |×2N|V | determines how the nodes in
+the graph communicate with each other, where N represents
+the number of different edge types. Messages are propagated
+for T steps. The output for node v is then deﬁned as
+Here, f1 and f2 are MLP, and outv is v’s desired output.
+PolygonRNN++ with GGNN: To get observations for our
+GGNN model, we add another branch on top of our skip-
+layer architecture, speciﬁcally, from the 112 × 112 × 256
+feature map (marked in blue in Fig. 4). We exploit a conv
+layer with 256 ﬁlters of size 15× 15, giving us a feature map
+of size 112 × 112 × 256. For each node v in the graph, we
+extract a S × S patch around the scaled (vx, vy) location,
+giving us the observation vector xv. After propagation, we
+× D(cid:48) spa-
+predict the output of a node v as a location in a D(cid:48)
+tial grid. We make this grid relative to the location (vx, vy),
+rendering the prediction task to be a relative displacement
+with respect to its initial position. This prediction is treated
+as a classiﬁcation task and the model is trained with the cross
+entropy loss. In particular, in order to train our model, we
+ﬁrst take predictions from the RNN decoder, and correct a
+wrong prediction if it deviates from the ground-truth vertex
+by more than a threshold. The targets for training our GGNN
+are then the relative displacements of each of these vertices
+with respect to their corresponding ground-truth vertices.
+Implementation details: We set S to 1 and D(cid:48) to 112.
+While our model supports much higher output resolutions,
+we found that larger D(cid:48) did not improve results. The hidden
+state of the GRU in the GGNN has 256 dimensions. We
+use T = 5 propagation steps. In the output model, f1 is
+a 256 × 256 FC layer and f2 is a 256 × 15 × 15 MLP. In
+training, we take the predictions from the RNN, and replace
+vertices with GT vertices if they deviate by more than 3 cells.
+3.6. Annot. New Domains via Online Fine-Tuning
+We now also tackle the scenario in which our model
+is trained on one dataset, and is used to annotate a novel
+dataset. As the new data arrives, the annotator uses our
+model to annotate objects and corrects wrong predictions
+when necessary. We propose a simple approach to ﬁne-tune
+our model in such a scenario, in an online fashion.
+Let us denote C as the number of chunks the new data
+is divided into, CS as the chunk size, NEV as the number
+of training steps for the evaluator network and NM LE, NRL
+as the number of training steps for each chunk with MLE
+and RL, respectively. Our online ﬁne-tuning is described
+in Algorithm 1 where P redictAndCorrect refers to the
+(simulated) annotator in the loop. Because we train on cor-
+rected data, we smooth our targets for MLE training with a
+manhattan distance transform truncated at distance 2.
+Algorithm 1: Online Fine Tuning on New Datasets
+bestPoly = cityscapesPoly;
+while currChunk in (1..C) do
+rawData = readChunk(currChunk);
+data = P redictAndCorrect(rawData, bestPoly);
+data += SampleF romSeenData(CS);
+newPoly = T rainM LE(data, NM LE, bestPoly);
+newPoly = T rainRL(data, NRL, newPoly);
+newPoly = T rainEV (data, NEV , newPoly);
+bestPoly = newPoly;
+end
+4. Experimental Results
+In this section, we provide an extensive evaluation of our
+model. We report both automatic and interactive instance an-
+notation results on the challenging Cityscapes dataset [8] and
+compare with strong pixel-wise methods. We then character-
+ize the generalization capability of our model with evaluation
+on the KITTI dataset [10] and four out-of-domain datasets
+spanning general scenes [43], aerial [34], and medical im-
+agery [16, 11]. Finally, we evaluate our online ﬁne-tuning
+scheme, demonstrating signiﬁcant decrease in annotation
+time for novel datasets. Note that as in [4], we assume that
+Model
+Square Box
+Dilation10
+DeepMask [22]
+SharpMask [23]
+Polygon-RNN [4]
+Residual Polygon-RNN
++ Attention
++ RL
++ Evaluator Network
++ GGNN
+Motorcycle
+Table 1: Performance (IoU in % in val test) on all the Cityscapes classes in automatic mode. All methods exploit GT boxes.
+Figure 6: Interactive mode on Cityscapes
+Figure 8: Interactive mode on KITTI
+user-provided ground-truth boxes around objects are given.
+We further analyze robustness of our model to noise with
+respect to these boxes, mimicking noisy annotators.
+4.1. In-Domain Annotation
+We ﬁrst evaluate our approach in training and evaluating
+on the same domain. This mimics the scenario where one
+takes an existing dataset, and uses it to annotate novel images
+from the same domain. In particular, we use the Cityscapes
+dataset [8], which is currently one of the most comprehensive
+benchmarks for instance segmentation. It contains 2975
+training, 500 validation and 1525 test images with 8 semantic
+classes. To ensure a fair comparison, we follow the same
+alternative split proposed by [4]. As in [4], we preprocess
+the ground-truth polygons according to depth ordering to
+obtain polygons for only the visible regions of each instance.
+Evaluation Metrics: We utilize two quantitative measures
+to evaluate our model. 1) We use the intersection over union
+(IoU) metric to evaluate the quality of the generated polygons
+and 2) we calculate the number of annotator clicks required
+to correct the predictions made by the model. We describe
+the correction protocol in detail in a subsequent section.
+Baselines: Following [4], we compare with Deep-
+Mask [22], SharpMask [23], as well as Polygon-RNN [4] as
+state-of-the-art baselines. Note that the ﬁrst two approaches
+are pixel-wise methods and errors in their output cannot eas-
+ily be corrected by an annotator. To be fair, we only compare
+our automatic mode with their approaches. In their original
+approach, [22, 23] exhaustively sample patches at different
+scales over the entire image. Here, we evaluate [22, 23] by
+providing exact ground-truth boxes to their models.
+We also use two additional baselines, namely SquareBox
+from [4] and Dilation10 from [38]. SquareBox considers
+the provided bounding box as its prediction. Dilation10
+is obtained from the segmentation results of [38] from the
+model that was trained on the Cityscapes dataset.
+Automatic Mode: We compare Polygon-RNN++ to the
+baselines in Table 1, as well as ablate the use of each of
+the components in our model. Here, Residual Polygon-
+RNN refers to the original model with our novel image
+architecture instead of VGG. Our full approach outperforms
+the top performer [4] by almost 10% IoU, and achieves best
+performance for each class. Moreover, Polygon-RNN++
+surpasses the reported human agreement [4] of 78.6% IoU
+on cars, on average. Using human agreement on cars as a
+proxy, we observe that the model also obtains human-level
+performance for the truck and bus classes.
+Interactive Mode: The interactive mode aims to minimize
+annotation time while obtaining high quality annotations.
+Following the simulation proposed in [4], we calculate the
+number of annotator clicks required to correct predictions
+from the model. The annotator corrects a prediction if it
+deviates from the corresponding GT vertex by a min distance
+of T , where the hyperparameter T governs the quality of
+the produced annotations. For fair comparison, distances
+are computed using manhattan distance at the model output
+resolution using distance thresholds T ∈ [1, 2, 3, 4], as in [4].
+Additionally, we introduce a second threshold T2, which
+is deﬁned as the IoU between the predicted polygon and the
+GT mask, where we consider polygons achieving agreement
+above T2 unnecessary for the annotator to interfere. We
+exploit this threshold due to the somewhat unsatisfactory
+correction simulation above: for example, if the predicted
+vertex falls along a GT polygon edge, this vertex is in fact
+correct and should not be corrected. Note that, in the extreme
+case of T2 = 1, our simulator assumes that corrections are
+necessary for every predicted polygon.
+In this case, the
+simulation is equivalent to the one presented in [4].
+In Fig. 6, we compare the average number of clicks per
+instance required to annotate all classes on the Cityscapes
+val set (500 images) with different values of T2. Using
+Model
+SquareBox (Expansion)
+Ellipse (Expansion)
+Square Box (Perfect)
+Ellipse (Perfect)
+DeepMask[22]
+SharpMask[23]
+Ours w/o GGNN
+Ours w/ GGNN
+Cardiac MR
+Table 2: Out-of-domain automatic mode performance
+Table 3: Car annot. results on KITTI in
+automatic mode (no ﬁne-tuning, 0 clicks)
+Table 4: Robustness to Bound-
+ing Box noise on Cityscapes (in
+% of side length at each vertex)
+Figure 9: Percentage clicks saved with online ﬁne-tuning on out-of-domain datasets (Plots share legend and y axis)
+Robustness to bounding box noise: To simulate the ef-
+fect of a lazy annotator, we analyze the effect of noise in
+the bbox provided to the model. We randomly expand the
+bbox by a percentage of its width and height. Results in
+Table 4 illustrates that our model is very robust to some
+amount of noise (0-5%). Even in the presence of moderate
+and large noise (5-10%,10-15%), it outperforms the reported
+performance of previous baselines which use perfect bboxes.
+4.1.1 Instance-Level Segmentation
+We evaluate our model on the task of (automatic) full-image
+object instance segmentation. Since PolygonRNN++ re-
+quires bounding boxes, we use FasterRCNN [28] to detect
+objects. The predicted boxes are then fed to our model
+to produce polygonal instance segmentations. Evaluating
+Polygon-RNN++ with FasterRCNN on the Cityscapes test
+set achieves 22.8% AP and 42.6% AP50. Following [19],
+we also add semantic segmentation [42] to post-process the
+results. We simply perform a logical “and" operation be-
+tween the predicted class-semantic map and our prediction.
+Following this scheme, we achieve 25.49% AP and 45.47%
+AP50 on the test set. More details are in the Appendix.
+4.2. Cross-Domain Evaluation
+In this section, we analyze the performance of our model
+on different datasets that capture both shifts in environment
+(KITTI [10]) and domain (general scenes, aerial, medical).
+We ﬁrst use our model trained on Cityscapes without any
+ﬁne-tuning on these datasets.
+KITTI [10]: We use Polygon-RNN++ to annotate 741
+instances of KITTI [10] provided by [5]. The results in auto-
+matic mode are reported in Table 3 and the performance with
+a human in the loop is illustrated in Fig. 8. Our method out-
+performs all baselines showcasing its robustness to change
+in environment while being in a similar domain. With an
+annotator in the loop, our model requires on average 5 fewer
+clicks than [4] to achieve the same IoU. It achieves human
+level agreement of 85% as reported by [5] by requiring only
+2 clicks on average by the (simulated) annotator.
+4.2.1 Out-of-Domain Imagery
+We consider datasets exhibiting varying levels of domain
+shift from the Cityscapes dataset in order to evaluate the
+generalization capabilities of our model.
+ADE20K [43]: The ADE20K dataset is a challenging gen-
+eral scene parsing dataset containing 20,210 images in the
+training set, 2,000 images in the validation set, and 3,000
+images in the testing set. We select the following subset of
+categories from the validation set: television receiver, bus,
+car, oven, person and bicycle in our evaluation. We show
+results for more classes in the Appendix.
+Aerial Imagery [34]: The Aerial Rooftop dataset [34]
+consists of 65 aerial images of rural scenes containing sev-
+eral building rooftops, a majority of which exhibit fairly
+complex polygonal geometry. Performance for this dataset
+is reported for the test set.
+Medical Imagery [16, 33, 11]: We use two medical seg-
+mentation datasets [16, 33] and [11] for our experiments.
+The former, used in the Left Ventricle Segmentation Chal-
+lenge [33], divides the data of 200 patients equally in the
+training and validation sets. We report the performance
+on a subset of the validation set which only includes the
+Figure 10: Qualitative results in automatic mode on Cityscapes. Left: requiring ground-truth (annotator-provided) bounding boxes, but 0 clicks for the
+polygons; Right: Full automatic image prediction (FasterRCNN + PolygonRNN++)
+Figure 11: Results with different components of the model
+Figure 13: Visualization of attention maps in our model
+outer contours that segment the epicardium. The latter pro-
+vides two image stacks (training and testing) each containing
+20 sections from serial section Transmission Electron Mi-
+croscopy (ssTEM) images of the ventral nerve cord. We use
+the mitochondria and synapse segmentations from this data
+to test our model. Since ground-truth instances for the test
+set are not publicly available, we evaluate on the training set.
+Quantitative Results: For out-of-domain datasets, we in-
+troduce a baseline (named Ellipse) which ﬁts an ellipse into
+the GT bounding box which is motivated by the observation
+that many instances in [33] are ellipses. We show results
+with perfect and expanded bounding boxes (expansion sim-
+ilar to our model) for Square Box and Ellipse. DeepMask
+and SharpMask were evaluated with perfect bounding boxes
+with the threshold suggested by the authors. Table 2, demon-
+strates high generalization capabilities of our model.
+Online Fine-tuning:
+In these experiments, our simulated
+annotator has parameters T = 1 and T2 = 0.8. Fig. 9 reports
+the percentage of clicks saved with respect to GT polygons
+Figure 12: Qualitative results in automatic mode on different unseen
+datasets without ﬁne-tuning
+for our Cityscapes model and the online ﬁne-tuned models.
+We see that our adaptive approach overcomes stark domain
+shifts with as few as one chunk of data (40 images for Sun-
+nybrook, 3 for ssTEM, 200 for ADE and 20 for Aerial)
+showcasing strong generalization. Overall, we show at least
+65% overall reduction in the number of clicks across all
+datasets, with the numbers almost at 100% for the Sunny-
+brook Cardiac MR dataset. We believe these results pave the
+way towards a real annotation tool that can learn along with
+the annotator and signiﬁcantly reduce human effort.
+4.3. Qualitative Results
+Fig. 10 shows example predictions obtained in automatic
+mode on Cityscapes. We illustrate the improvements from
+speciﬁc parts of the model in Fig. 11. We see how using RL
+and the evaluator network leads to crisper predictions, while
+the GGNN upscales, adds points and builds a polygon resem-
+bling human annotation. Fig. 12 showcases automatic pre-
+dictions from PolygonRNN++ on the out-of-domain datasets.
+We remind the reader that this labeling is obtained by ex-
+ploiting GT bounding boxes, and no ﬁne-tuning.
+4.4. Interaction with Human Annotators
+To corroborate our ﬁndings with a simulated annotator,
+we also conducted a small scale experiment with real human
+annotators in the loop. To this end, we implemented a very
+Cityscapes
+ADE
+manual
+with PolyRNN++
+Table 5: Real Human Experiment: In-domain on 50 randomly chosen
+Cityscapes car instances (left) and Out-of-domain on 40 randomly chosen
+ADE20K instances (right). No ﬁne-tuning was used in ADE experiment.
+simple annotation tool that runs our model at the backend.
+We obtained 54 car instances from Cityscapes used by [4]
+for their human experiment. We asked two human subjects
+to annotate these interactively using our model, and two to
+annotate manually. While we explain how the tool works, we
+do not train the annotators to use our tool. All our annotators
+were in-house.
+Timing begins when an annotator ﬁrst clicks on an object,
+and stops when the "submit" button is clicked. While using
+our model, the annotator needs to draw a bounding box
+around the object, which we include in our reported timing.
+Note that we display the object to the annotator by cropping
+an image inside an enlarged box. Thus our annotators are fast
+in drawing the boxes, taking around 2 seconds on average.
+In the real scenario, the annotator would be annotating the
+full image, thus more time would be spent on placing boxes
+around the objects – however, this step is typically common
+to fully manual annotation tools as well.
+The results are presented in Table 5. We observe that
+when using our model, annotators are 3x faster, with only
+slightly lower IoU agreement with the ground truth. Note
+that we used a basic version of the tool, with scope for im-
+provement in various engineering aspects. The authors of [4]
+reported that on these examples, human subjects needed on
+average 42.2 seconds per instance using GrabCut [31], while
+also achieving a lower IoU (70.7).
+We also use our model on cross-domain annotation. In
+particular, we use the ADE20k dataset and our model trained
+on Cityscapes (no ﬁne-tuning). We randomly chose a total
+of 40 instances of car, person, sofa and dog. Here car
+and person are two classes seen in Cityscapes (i.e., person
+∼ pedestrian in Cityscapes), and sofa and dog are unseen
+categories. From results in Table 5, we observe that the
+humans were still faster when using our tool, but less so,
+as expected. Agreement in terms of IoU is also lower here,
+indicating potential biases by annotators to accept less-than
+perfect predictions when more corrections are needed. We
+are developing a more complete annotation tool, and plan to
+investigate such phenomena on a larger scale.
+Limitations: Our model predicts only one polygon per
+box and typically annotates the more central object. If one
+object breaks the other, our approach tends to predict the
+occluded object as a single polygon. As a result, current fail-
+ures cases are mostly around big multi-component objects.
+Note also that we do not handle holes which do not appear
+in any of our tested datasets. In interactive mode, we would
+greatly beneﬁt by allowing the human to add/remove points.
+5. Conclusion
+In this paper, we proposed Polygon-RNN++, a model for
+object instance segmentation that can be used to interactively
+annotate segmentation datasets. The model builds on top of
+Polygon-RNN [4], but introduces several important improve-
+ments that signiﬁcantly outperform the previous approach
+in both, automatic and interactive modes. We further show
+robustness of our model to noisy annotators, and show how
+it generalizes to novel domains. We also show that with a
+simple online ﬁne-tuning scheme, our model can be used to
+effectively adapt to novel, out-of-domain datasets.
+Acknowledgement
+We gratefully acknowledge support from NVIDIA for
+their donation of several GPUs used for this research. We
+also thank Kaustav Kundu for his help and advice, and Relu
+Patrascu for infrastructure support.
+References
+[1] M. Bai and R. Urtasun. Deep watershed transform for instance
+[2] Y. Boykov and M.-P. Jolly. Interactive graph cuts for optimal
+boundary & region segmentation of objects in nd images. In
+ICCV, 2001.
+[9] L. Duan and F. Lafarge. Towards large-scale city reconstruc-
+[15] S. Ioffe and C. Szegedy. Batch normalization: Accelerating
+deep network training by reducing internal covariate shift. In
+ICML, pages 448–456, 2015.
+graph sequence neural networks. In ICLR, 2016.
+networks for instance segmentation. In ICCV, 2017.
+Networks for Semantic Segmentation. In CVPR, 2015.
+[24] T. Pohlen, A. Hermans, M. Mathias, and B. Leibe. Full-
+resolution residual networks for semantic segmentation in
+street scenes. CVPR, 2017.
+level training with recurrent neural networks. ICLR, 2016.
+active foreground extraction using iterated graph cuts.
+SIGGRAPH, 2004.
+[36] R. J. Williams. Simple statistical gradient-following algo-
+rithms for connectionist reinforcement learning. In Machine
+Learning, 1992.
+[38] F. Yu and V. Koltun. Multi-scale context aggregation by
+[39] Z. Zhang, S. Fidler, and R. Urtasun. Instance-level segmen-
+tation for autonomous driving with deep densely connected
+mrfs. In CVPR, 2016.
+[41] Z. Zhang, A. Schwing, S. Fidler, and R. Urtasun. Monocular
+object instance segmentation and depth ordering with cnns.
+In ICCV, 2015.
+In the appendix, we provide additional qualitative and
+quantitative results for our Polygon-RNN++ model. In par-
+ticular, we show an additional ablation study that emphasizes
+the importance of the evaluator network. We also illustrate
+the performance of our model across the course of training
+during the RL training phase. We provide further details
+on automatic full-image object instance segmentation. Fi-
+nally, we provide several qualitative examples for both the
+automatic and interactive modes.
+Training with RL.
+In Fig. 14, we plot the performance
+in terms of mean IoU during RL training on Cityscapes [8].
+Additionally, we show the average length of polygons. Note
+that nothing in our model prevents predicting polygons that
+include self-intersection. We also investigate this issue in
+this plot. In comparison with the MLE model, we can see
+that we obtain an increase in terms of mean IoU. Note also
+(a) Average IOU Inference Greedy Pass
+(b) Number of Self-Intersections
+(c) Polygons AVG Length
+Figure 14: Performance during RL training on our validation set on the Cityscapes dataset.
+Figure 15: Interactive Mode on Cityscapes for different values of T2
+that by directly optimizing IoU, the average length of the
+predicted polygons and the number of polygons with at least
+one self-intersection decrease.
+predicted polygon vertex, and use the evaluator network to
+also choose between the K last vertex candidates (for each
+ﬁrst vertex candidate). This gets us another 0.2% (last row).
+Evaluator Network.
+In Table 6 we compare different de-
+coding strategies, and showcase the importance of the eval-
+uator network. We separate two cases: handling multiple
+ﬁrst vertex candidates, as well as multiple sequences (poly-
+gons) that follow from each ﬁrst vertex candidate. We see
+that while beam search for both the ﬁrst vertex and the full
+sequence outperforms greedy decoding, the improvement is
+minor (0.5%, second row). Following K ﬁrst vertices using
+greedy decoding for the sequence and using the evaluator
+network to choose between the K polygons results in 2.2%
+over beam search (third row). Using beam search for the
+sequence (and evaluator network to choose between the K
+polygons in the end) further increases performance (0.3%,
+fourth row). In the last row, we use beam search until the last
+Output Resolution and Sensitivity to T of GGNN. Note
+that our GGNN formulation is efﬁcient and can handle large
+output sizes. We experimented with two output resolutions,
+112× 112, and 224× 224. The result for the 224× 224 was
+only 0.02% better than that of 112×112, but required longer
+training times. Thus, our choice in the paper is 112 × 112.
+In Table 7 we report results for different T (number of prop-
+agation steps), showing stable results across several options.
+Automatic Mode in Cityscapes.
+In Figure 16 and 17 we
+provide a qualitative comparison between our model in auto-
+matic mode and the ground-truth polygons. The ﬁrst column
+illustrates the predicted full image while the second shows
+the GT polygons. We remind the reader that here, our model
+First Vertex
+Greedy
+BeamSearch (BS)
+Eval. Net
+Eval. Net
+Eval. Net
+Sequence
+Greedy
+Greedy
+Table 6: The role of the evaluation network. Here Greedy denotes greedy decoding of the polygon, and BS indicates beam-search. We use K = 5.
+Performance (IoU in %) in automatic mode for all Cityscapes classes.
+Table 7: Performance (automatic mode) for different number of propagation
+steps (TGGN N ) in GGNN. Experiment done on Cityscapes. We report the
+performance averaged across all categories.
+exploits ground-truth bounding boxes.
+Model
+PANet
+Mask R-CNN
+SegNet
+GMIS
+PolygonRNN++
+SGN
+Full-image Instance-Level Segmentation on Cityscapes.
+We evaluate our model on the task of instance segmenta-
+tion. In our scenario, this can also be seen as an automatic
+full image annotation task. Since PolygonRNN++ requires
+bounding boxes, we use FasterRCNN [28] for object detec-
+tion on the whole image. In particular, we train the best
+FasterRCNN model of [14] (pre-trained on MS-COCO) on
+the Cityscapes dataset (ﬁne annotations only). The predicted
+boxes are then fed to our model to produce polygonal in-
+stance segmentations. Evaluating Polygon-RNN++ with
+FasterRCNN on the Cityscapes test set achieves 22.8% AP
+and 42.6% AP50.
+A major limitation of our model in this scenario is that
+it only predicts one polygon per bounding-box. As a re-
+sult, multi-component object-masks, coming from occluding
+objects, are heavily penalized by the evaluation procedure.
+In order to tackle this issue, we further use semantic
+information. Speciﬁcally, we use the predicted semantic seg-
+mentation results from [42]. We then perform a logical “and"
+operation between the predicted class-semantic map and our
+instance polygonal prediction. Following this scheme, we
+achieve 25.49% AP and 45.47% AP50 on the test set.
+In Figure 18, we show more qualitative results of our full
+instance segmentation model (i.e. with boxes from Faster-
+RCNN). Results on the Cityscapes Instance Segmentation
+Benchmark are reported in Table 8.
+Interactive mode in Cityscapes. Figure 15 shows the his-
+togram of the number of corrections (clicks) for different
+values of T2 and T . It also shows the average IoU and the
+average number of clicks for the given thresholds. We can
+see that most of the predictions can be successfully corrected
+with 5 clicks. Figure 20 shows a few qualitative examples
+of our interactive simulation on the Cityscapes dataset. The
+automatically predicted polygons are shown in the ﬁrst col-
+umn while the second column shows the result after a certain
+Table 8: Performance on ofﬁcial Cityscapes Instance Labeling benchmark
+(test). We report best result for each method.
+number of corrections. The last one depicts the ground-truth
+polygons. For all instances, we show the required number of
+clicks and the achieved IoU.
+Automatic Mode in Out-of-Domain Imagery.
+In Fig-
+ures 21, 22, 23, 24, 25 we analyze the qualitative per-
+formance of our model on different datasets that capture
+both shifts in environment KITTI [10] and domain (general
+scenes [43], aerial [34], medical [16, 33, 11]). We emphasize
+that here we use our model trained on Cityscapes without
+any ﬁne-tuning on these datasets. The ﬁrst column shows
+prediction in automatic mode while the second column visu-
+alizes the GT instances. Note that in some of these datasets
+we do not have GT polygons as only segmentation masks are
+provided. In those cases, the GT image is labeled as Mask
+and the number of clicks is not shown.
+Automatic Mode and Online Fine-Tuning. Figure 26 il-
+lustrates the performance of the proposed Online Fine-tuning
+algorithm on different datasets. We ﬁrst show the prediction
+of the model without any ﬁne-tuning. We then illustrate
+the automatic predictions of the ﬁne-tuned model. The GT
+instances are shown in the last column. In all cases, the
+ﬁne-tuned predictions are generated after the last chunk has
+been seen (illustrated in Figure 9 of the main paper).
+Extended Evaluation on ADE Val Set.
+In Figure 19, we
+report the performance of PolygonRNN++ on the ADE vali-
+dation set without any ﬁne-tuning, and running in automatic
+mode (with ground-truth boxes). Note that, for the ease of
+visualization we only illustrate the top and bottom 50 cat-
+egories, sorted by performance. Only instances with more
+than 20 categories are shown.
+PolygonRNN++ (with GT boxes)
+Human Annotator
+Figure 16: Automatic mode on Cityscapes dataset: Qualitative comparison between a human annotator vs PolygonRNN++ in automatic mode on Cityscapes.
+This model exploits GGNN to output a polygon at a higher resolution. Note that our model relies on bounding boxes.
+PolygonRNN++ (with GT boxes)
+Human Annotator
+Figure 17: Automatic mode on Cityscapes dataset: Qualitative comparison between a human annotator vs PolygonRNN++ in automatic mode on Cityscapes.
+This model exploits GGNN to output a polygon at a higher resolution. Note that our model relies on ground-truth bounding boxes.
+Figure 18: Full-image instance segmentation: Qualitative results of full image prediction using Polygon-RNN++ with boxes from Faster-RCNN
+Figure 19: Automatic mode on ADE val: Performance of PolygonRNN++ without ﬁne-tuning on ADE validation set. Only categories with more than 20
+instances are shown. Left: Top 50 categories in terms of IoU performance. Right: Bottom 50 categories in terms of IoU performance.
+Figure 20: Interactive mode on the Cityscapes dataset. Here we show only predicted and corrected vertices at the 28 × 28 resolution (no GGNN is used
+here). Notice a major failure case in automatic mode in the bottom right example (where self-intersection occurs), which however gets quickly corrected.
+Note that the annotator is simulated (we correct a vertex if it deviates from the ground-truth vertex by a threshold T ).
+Figure 21: Cross-domain without ﬁne-tuning: trained on Cityscapes → tested on ADE20k, automatic mode. Qualitative comparison between a human
+annotator vs PolygonRNN++ in automatic mode in ADE20K without ﬁne-tuning. Note that our model relies on bounding boxes. Notice also that in some
+cases our predictions achieve a much higher level of detail than human provided annotations.
+Figure 22: Cross-domain without ﬁne-tuning: trained on Cityscapes → tested on Rooftop-Aerial, automatic mode. Qualitative comparison between a
+human annotator and PolygonRNN++ in automatic mode in the Rooftop-Aerial dataset without ﬁne-tuning. Note that our model relies on ground-truth
+bounding boxes.
+Figure 23: Cross-domain without ﬁne-tuning: trained on Cityscapes → tested on KITTI, automatic mode. Qualitative comparison between a human
+annotator and PolygonRNN++ in automatic mode in KITTI without ﬁne-tuning. Note that our model relies on ground-truth bounding boxes.
+Figure 24: Cross-domain without ﬁne-tuning: trained on Cityscapes → tested on Cardiac MR, automatic mode. Qualitative comparison of ground-
+truth masks vs PolygonRNN++ in automatic mode in the Cardiac MR dataset [16, 33] without ﬁne-tuning. Note that our model relies on bounding
+boxes.
+Figure 25: Cross-domain without ﬁne-tuning: trained on Cityscapes → tested on ssTEM, automatic mode. Qualitative comparison of ground-truth
+masks vs PolygonRNN++ in automatic mode in the ssTEM dataset[11] without ﬁne-tuning. Note that our model relies on ground-truth bounding boxes.
+Figure 26: Cross-domain with ﬁne-tuning, automatic mode. Qualitative results on different out-of-domain datasets after using the proposed Online
+Fine-tuning algorithm.
+Figure 27: Upscaling with the GGNN: Performance of PolygonRNN++ after and before upscaling the output polygon with GGNN Left: Output of
+PolygonRNN++ before upscaling Center: Output of PolygonRNN++ after GGNN Right: GT

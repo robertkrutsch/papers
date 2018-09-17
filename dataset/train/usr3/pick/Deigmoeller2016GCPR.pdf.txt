@@ -1,0 +1,317 @@
+Stereo Visual Odometry Without
+Temporal Filtering
+Joerg Deigmoeller(B) and Julian Eggert
+joerg.deigmoeller@honda-ri.de
+Abstract. Visual Odometry is one of the key technology for navigating
+and perceiving the environment of an autonomous vehicle. Within the
+last ten years, a common sense has been established on how to imple-
+ment high precision and robust systems. This paper goes one step back
+by avoiding temporal ﬁltering and relying exclusively on pure measure-
+ments that have been carefully selected. The focus here is on estimating
+the ego-motion rather than a detailed reconstruction of the scene. Diﬀer-
+ent approaches for selecting proper 3D-ﬂows (scene ﬂows) are compared
+and discussed. The ego-motion is computed by a standard P6P-approach
+encapsulated in a RANSAC environment. Finally, a slim method is pro-
+posed that is within the top ranks of the KITTI benchmark without
+using any ﬁltering method like bundle adjustment or Kalman ﬁltering.
+1 Introduction
+For autonomously navigating platforms it is indispensable to use some kind of
+odometry to travel along a planned path or to relocate itself in a known environ-
+ment. One possibility is wheel odometry, which is the combination of measured
+revolutions of a platforms wheel plus steering angle if available. This method suf-
+fers from slip and also heavy drift in position which increases over time. Similar
+problems occur with an IMU (Inertial Measurement Unit) that usually incor-
+porates accelerometers, gyroscopes and sometimes GPS within a strap-down
+algorithm. This requires an intensive and complex ﬁltering to compensate errors
+from GPS plus huge drifts from the accelerometers. In the end, such a system
+can become very expensive and slow in terms of reaction time on sudden changes
+in movement.
+On the other side, visual odometry has become a serious alternative because
+of decreasing camera costs and the fast developing market of small powerful
+integrated low cost processors. Still, problems like drift over time remain. Nev-
+ertheless, the accuracy is in a much lower range than wheel odometry (also
+because the slip problem is avoided) and it opens the possibility for many other
+applications that make use of cameras, like collision avoidance, lane keeping or
+sign recognition. Also very powerful is the combination of visual odometry with
+gyroscopes which can have very accurate rotation rates [15].
+Stereo Visual Odometry Without Temporal Filtering
+the most accurate results. In contrast, a mono camera set-up is per se not able
+to estimate the real 3D-translation (only up to scale) because of the missing
+real world relation. To overcome this, a ground plane estimation with known
+distance of the camera above ground could be used to compute the missing
+scale. This brings in new errors of inaccurate or even false measures. The most
+straightforward and accurate way is to get the scale factor from a calibrated
+stereo set-up.
+Further, the drift inherent to purely visual odometry system could be reduced
+by applying VSLAM-techniques (Visual Simultaneous Localization and Map-
+ping) which relocate the moving platform to previously visited places. The main
+interest of this work is going back to the starting point of a VSLAM-system - the
+pure visual odometry - and to take maximal advantage of the process to achieve
+a high precision with a simple as possible approach.
+2 Related Work
+The term visual odometry appeared for the ﬁrst time in the publication [14]. A
+very comprehensive overview of state of the art visual odometry can be found in
+[7,17]. The key message from their tutorial for a stereo system is to compute the
+relative rotation and translation by minimizing the re-projection error on the
+image plane (Perspective from n Points, PnP). In contrast, minimizing the error
+of 3D-points is inaccurate because of increasing uncertainties with increasing
+depth. Additionally, a ﬁltering method like bundle adjustment should be applied
+to reduce the drift over time.
+Thanks to publicly available benchmarks like the well-known KITTI bench-
+mark [8], visual odometry methods are now comparable in their precision. Nearly
+all of the top ranked methods on the KITTI benchmark apply the minimization
+of the re-projection error. The top ranked visual odometry submission [4] ﬁrst
+estimates the rotational motion and subsequently the translation. Features are
+matched by a combination of SAD and NCC plus geometric constraints. They are
+tracked over time and pixel positions are reﬁned in a predictor-corrector manner.
+Long life features are preferred against shortly tracked features. A similar app-
+roach of tracking long life features has been used in [1]. Again, they reﬁne tracked
+features in a prediction-correction framework called “integrated features”. [16]
+uses standard visual odometry processes like feature tracking and multi-window
+bundle adjustment in a carefully built system motivated from monocular visual
+odometry. A diﬀerent approach is presented by [5] which performs a photometric
+alignment based on depth maps. Depth is computed along the stereo baseline
+(Static Stereo) and the movement baseline (Temporal Stereo). Correspondence
+measures are tracked over time and search ranges are constrained from previ-
+ous estimates. Camera positions are ﬁnally optimized in a pose-graph using key
+frames and loop closures are done if the cameras are close to a previously visited
+location.
+Some work also analyzed the inﬂuence of features at diﬀerent depth on the
+pose estimation. For example [13] uses features at inﬁnity distance (inﬁnity
+J. Deigmoeller and J. Eggert
+according to the pixel raster of the image sensor) for rotation estimation and
+close features for translation. [11] make use of the bucketing technique - known
+from robust regression methods - to indirectly pick features at diﬀerent depths
+for a better pose estimation. For pose optimization, they use an Iterated Sigma
+Point Kalman Filter (ISPKF).
+In contrast to the previously mentioned publications, this work does not use
+any temporal ﬁltering, neither bundle adjustment nor any predictor-corrector
+like ﬁltering. The system is built in a way that as few as necessary process-
+ing steps are used and poses are concatenated from pure measurements. This
+reduces the implementation eﬀort drastically as already a proper feature tracking
+requires indexing and complex managing over time.
+The advantage of the proposed system is its fast reaction time which is impor-
+tant for applications like collision avoidance or for drastically changing move-
+ments. Still, the approach is competing with the top ranked methods on the
+KITTI benchmark and currently on rank 8 under the stereo vision methods (see
+Chap. 6 for more details).
+3 System Overview
+Assuming that the stereo images are already rectiﬁed, the system consists of
+two parts. First, the 3D-ﬂow (scene ﬂow) computation and second, the pose
+estimation.
+The scene ﬂow computation is a combination of disparity and optical ﬂow
+computation using standard Harris corner detector [9] with subsequent pyrami-
+dal Lucas & Kanade optical ﬂow computation [2].
+The pose estimation is a simple P6P-method (Perspective from 6 Points)
+encapsulated in a RANSAC (Random Sample Consensus) framework.
+The idea was to use available standard methods (e.g. from OpenCV) to ﬁrst
+extract the crucial points of visual odometry. In a later step - which is not part
+of this paper - specializations of the core parts are planned.
+In the remainder of this paper, the focus is on the comparison of diﬀerent
+constraints on the scene ﬂow estimations in Sect. 4. The pose estimation - dis-
+cussed in Sect. 5 - is not modiﬁed and runs with parameters that have been
+determined in previous optimizations. Finally, experimental results are shown
+on the KITTI benchmark data.
+4 Scene Flow Estimation
+The scene ﬂow is always computed by two consecutive stereo image pairs {I l
+and {I l
+puting the partial image derivatives:
+i }
+i , I r
+}. Initially, standard Harris corners are estimated by ﬁrst com-
+Stereo Visual Odometry Without Temporal Filtering
+(2)
+where λ1 and λ2 are the eigenvalues of Q(x). W is the neighbourhood around
+a pixel position x =(x,y)T . The parameter k inﬂuences the “cornerness” of a
+feature. W is a 7× 7 window, with the size determined by optimization using an
+extensive parameter grid search. 4000 features are initially computed and sorted
+by their corner response value.
+Additionally, the integer pixel position of the Harris feature is reﬁned to sub-
+pixel accuracy. That means, x is recalculated with the help of gradient informa-
+tion in its neighbourhood [3].
+After the feature extraction, the Lucas & Kanade optical ﬂow is computed
+}, where i, i + 1
+for pairwise combinations of the input images {I l
+denote subsequent images in time and l, r denote left and right images of the
+stereo set-up. The Lucas & Kanade optical ﬂow is the perfect counterpart to the
+Harris corner, because its correlation measure results in the same partial image
+derivatives multiplied by a vector containing the temporal derivatives:
+W IxIt
+W IyIt
+where v = (u,v)T is the optical ﬂow. As v is only valid in a local neighbour-
+hood the pyramidal approach has been used to propagate optical ﬂows from
+down-sampled images to the highest resolution. 5 pyramid levels have been used
+and for W a window of 9× 9 has been chosen, also determined from previous
+parameter optimization.
+Lucas & Kanade optical ﬂows are very fast to compute but tend to get stuck
+in local minima. Therefore, further checks are required to limit the measurements
+to a reliable set. On the other hand, wrong checks can remove features that
+might be important for the visual odometry. This sensitive issue is tackled more
+in detail in the following by diﬀerent experiments on the KITTI training data.
+On the KITTI website an evaluation software and ground truth poses for 11
+sequences are available [8]. For every sequence, the translation error and rotation
+error is calculated. All following experiments refer to this error measure.
+} and the opti-
+cal ﬂow between {I l
+} (see Fig. 1) are computed by the Lucas & Kanade
+method. This is the minimal processing eﬀort as the poses are optimized on the
+} and 2D correspondences
+re-projection error, i.e. 3D positions from {I l
+from {I l
+For scene ﬂow estimation, the disparity between {I l
+The ﬁrst consistency check is a forward/backward check. That means, if the
+optical ﬂow or disparity from the end point back to the starting point deviates
+more than a threshold tf b, then the feature is rejected. Table 1 shows the trans-
+lation errors and rotation errors for diﬀerent tf b. As a threshold of tf b = 5 pixels
+gives the best result, this value is used for further experiments. On the other
+hand, switching the forward/backward check oﬀ leads to a signiﬁcant drop of
+the performance.
+J. Deigmoeller and J. Eggert
+Fig. 1. Computation of the disparity dl
+feature initialized in I l
+i .
+i+1 and the optical ﬂow vl
+i for a Harris corner
+Table 1. Inﬂuence of backwards check on overall performance
+The second consistency check is on the disparity measure only. Since for dis-
+parity measure a standard optical ﬂow method is used, all vectors that have
+a y-component greater than zero pixels are theoretically not possible because
+a perfect rectiﬁcation aligns both images in a way that the epipolar lines are
+horizontal. In practice, rectiﬁcations are never perfect and hence a threshold
+to remove disparities with a larger y-component than a threshold td is intro-
+duced. Additionally, disparities that have a positive x-component are obviously
+also invalid measurements, because disparities should only have negative signs
+(measured from the left to the right image). Therefore, positive disparities are
+also rejected. Based on Table 2, a threshold of td = 1 is chosen for future tests.
+Table 2. Inﬂuence of check for y-disparity component on overall performance
+So far, tests were made with a Harris corner response factor k close to zero.
+This means that as many features as possible are kept to leave the decision
+of rejection on the subsequent checks. In the next experiment the k value is
+Stereo Visual Odometry Without Temporal Filtering
+Table 3. Inﬂuence of k on overall performance
+increased to check the inﬂuence of the “cornerness” on the overall performance.
+A value of k = 0.0 means that the features can also be edges and with increasing
+k features more and more resemble corners.
+From Table 3, it can be seen that a value of k = 0.0 gives the smallest
+translation error. This shows that a high corner response is probably not the
+best indicator for a good feature for visual odometry estimation with combined
+optical ﬂow and disparity. Deﬁnitely, a corner has suﬃcient structure to allow
+an optical ﬂow measure and avoid the aperture problem. On the other hand,
+using stereo images and consecutive images allows for more meaningful outlier
+rejection checks by using geometric constraints.
+The last consistency check is a circle check to identify outlier. This circle check
+computes the ﬂows between left and right images in time as well as the disparities
+between ﬁrst and second image pairs (see Fig. 2). Only if all concatenated pixel
+measurements end up at the same position in image I r
+i+1 with an error less than
+a threshold tcc, the feature is kept.
+Fig. 2. Circle check: only if all measurements end up at the same position in I r
+feature is kept.
+As can be seen in Table 4, the circle check does not signiﬁcantly improve
+the performance compared to the previous version (1.3070 % against 1.3048 %).
+Additionally, it requires double computation eﬀort compared to the version
+J. Deigmoeller and J. Eggert
+Table 4. Inﬂuence of circle check on overall performance
+translation error [%]
+rotation error [deg/m]
+without circle check. Therefore, the previous version without circle check is used
+as ﬁnal method.
+5 Pose Estimation
+The pose estimation is a standard P6P-approach minimizing the re-projection
+error on the image plane as follows:
+arg min
+Ti
+where Ti is the transformation matrix from time step i + 1 to time step i
+containing rotation and translation:
+⎛
+⎝
+i+1,j is the homogeneous 3D-position in the second image estimated from
+dl
+i+1 and the values from rectiﬁcation for focal length, principal point and base-
+line. ˆxl
+i,j are the Harris corner positions converted to homogeneous coordinates
+(cf. Fig. 1). Ti is computed from i + 1 to i to directly get the ego-motion of the
+vehicle. Computing from i to i + 1 would return the coordinate transformations,
+which is obviously the inverse ego-motion.
+After a ﬁrst estimation of Ti using Singular Value Decomposition (SVD), R
+and T are reﬁned by non-linear optimization on the geometric error [12,17].
+The computation of Ti is encapsulated in the robust regression framework
+RANSAC [6,10]. The inlier/outlier-ratio has been set to a conservative value of
+0.5 to avoid run-time optimizations at too early stage. The most crucial para-
+meter is the re-projection error that deﬁnes the threshold for the census set tr.
+The feature points are at such a high precision that the re-projection error can
+be set below 1 pixel. Table 5 shows the inﬂuence of the re-projection threshold.
+The overall performance drastically increases with decreasing tr. A threshold of
+tr = 0.1 pixel ﬁnally lead to the best results on training and testing set.
+6 Experimental Results
+In the previous chapters diﬀerent methods have been evaluated on the KITTI
+benchmark training data. In this chapter, the results of the testing data are
+Stereo Visual Odometry Without Temporal Filtering
+Table 5. Inﬂuence of the re-projection error threshold on overall performance
+Fig. 3. Reconstructed path of sequence 13 and ground truth path from the KITTI
+benchmark.
+Fig. 4. Reconstructed path of sequence 13 (red dots) and 3D-reconstruction along the
+driven path (gray dots). (Color ﬁgure online)
+J. Deigmoeller and J. Eggert
+}
+presented. In summary, the algorithm computes 3D positions from {I l
+} (no circle check). Additionally, a for-
+and 2D correspondences from {I l
+ward/backward check is applied with tf b = 5 pixels, a disparity rejection if
+td > 1 pixel and a Harris corner response factor of k = 0.0. The RANSAC
+applies a re-projection threshold of tr = 0.1 pixel.
+Uploading this version gives a translation error of 1.17 % and a rotation
+error of 0.0035 [deg/m], which ranks 8th under the vision approaches (NOTF,
+5th April 2016) and 11th in overall ranking (including laser approaches).
+Figure 3 depicts ground truth poses and the computed poses by the NOTF
+algorithm. Figure 4 depicts the same path but with the reconstructed features
+that have been used for the ego-motion estimation.
+At the moment, the run-time is comparably high (440 ms on a Core i5-4460, 1
+core used at 3.2 GHz) which is due to the fact that the parameters are chosen very
+conservatively; many more iterations than required for e.g. sub-pixel reﬁnement
+and random sampling of RANSAC. This has been a deliberate decision so as not
+to optimize at an too early stage. In a next step, the parameters will be adapted
+in a way that the performance remains comparable at a lower run-time, which
+will be expected to be in a range of 100–150 ms on the same machine.
+7 Conclusion
+A simple and slim visual odometry method has been proposed that is within the
+top ranks of the KITTI benchmark. In contrast to other methods, no temporal
+ﬁltering is applied. The results support the conclusion that with a proper outlier
+rejection, raw and unﬁltered optical ﬂow measures can deliver the same precision
+as current methods applying bundle adjustment or Kalman ﬁltering.
+The presented study tackled the problem of outlier rejection by purely vary-
+ing geometric constraints on the optical ﬂow measure. It has been shown that
+such constraints have a high inﬂuence on the performance. Choosing the right
+combination is a balancing act between keeping as many accurate features as
+possible and rejecting imprecise measures.
+The pose estimation has not been modiﬁed, which is a topic remaining for
+future work. Probably, there will be a higher precision if the selection of measure-
+ments in the RANSAC framework is done with more prior knowledge instead of
+pure random sampling.
+Still unclear is if there will be a performance boost by applying ﬁltering
+methods. This will also be an open question for future investigations.
+Further improvement is expected if a real 1D disparity measure is applied for
+3D features instead of standard optical ﬂow with subsequent feature rejection.
+Probably, a signiﬁcant number of disparities gained by the optical ﬂow procedure
+are wrong measures, because a full search is applied.
+Stereo Visual Odometry Without Temporal Filtering
+References
+1. Badino, H., Yamamoto, A., Kanade, T.: Visual odometry by multi-frame feature
+integration. In: 2013 IEEE International Conference on Computer Vision Work-
+shops (ICCVW) (2013)
+2. Bouguet, J.Y.: Pyramidal implementation of the Lucas Kanade feature tracker.
+Intel Corporation, Microprocessor Research Labs (2000)
+3. Bradski, G., Kaehler, A.: Learning OpenCV: Computer Vision with the OpenCV
+4. Cvisic, I., Petrovic, I.: Stereo odometry based on careful feature selection and
+tracking. In: European Conference on Mobile Robots (ECMR) (2015)
+5. Engel, J., Stueckler, J., Cremers, D.: Large-scale direct SLAM with stereo cameras.
+In: International Conference on Intelligent Robot Systems (IROS) (2015)
+7. Fraundorfer, F., Scaramuzza, D.: Visual odometry part II: matching, optimization
+Fourth Alvey Vision Conference (1988)
+10. Hartley, R., Zisserman, A.: Multiple View Geometry in Computer Vision (2003)
+11. Kitt, B., Geiger, A., Lategahn, H.: Visual odometry based on stereo image
+sequences with RANSAC-based outlier rejection scheme. In: IEEE Intelligent Vehi-
+cles Symposium (2010)
+analysis for outdoor applications. In: Mobile Robots Navigation (2010)
+Absolute Scale Estimation in Monocular SLAM (2010)
+from monocular techniques. In: IEEE Intelligent Vehicles Symposium (2015)

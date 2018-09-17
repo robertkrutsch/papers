@@ -1,0 +1,712 @@
+Optical Flow Requires Multiple Strategies (but only one network)
+Tal Schuster1 Lior Wolf1
+1The Blavatnik School of Computer Science, Tel Aviv University, Israel
+2Facebook AI Research
+talschuster@gmail.com, wolf@cs.tau.ac.il, dedigadot@gmail.com
+Abstract
+We show that the matching problem that underlies op-
+tical ﬂow requires multiple strategies, depending on the
+amount of image motion and other factors. We then study
+the implications of this observation on training a deep neu-
+ral network for representing image patches in the context of
+descriptor based optical ﬂow. We propose a metric learning
+method, which selects suitable negative samples based on
+the nature of the true match. This type of training produces
+a network that displays multiple strategies depending on the
+input and leads to state of the art results on the KITTI 2012
+and KITTI 2015 optical ﬂow benchmarks.
+1. Introduction
+In many AI challenges, including perception and plan-
+ning, one speciﬁc problem requires multiple strategies. In
+the computer vision literature, this topic has gained little
+attention. Since a single model is typically trained, the con-
+ventional view is that of a uniﬁed, albeit complex, solu-
+tion that captures all scenarios. Our work shows that care-
+ful consideration of the multifaceted nature of optical ﬂow
+leads to a clear improvement in performing this task.
+In optical ﬂow, one can roughly separate between the
+small- and the large-displacement scenarios, and train
+model to apply different strategies to these different cases.
+The small displacement scenarios are characterized by rela-
+tively small appearance changes and require patch descrip-
+tors that can capture minute differences in appearance. The
+large displacement scenarios, on the other hand, require
+much more invariance in the matching process.
+State of the art methods in optical ﬂow employ metric
+learning in order to learn the patch descriptors. We focus
+on the process of selecting negative samples during training
+and suggest two modiﬁcations. First, rather than selecting
+all negative samples close to the ground truth, we propose
+an interleaving learning method that selects negative sam-
+ples at a distance that match the amount of displacement
+that the true match (the positive sample) undergoes, as is il-
+Figure 1. Illustration of strategies for selecting negative samples.
+(a) The ﬁrst frame, in which some locations are marked. (b) In the
+baseline method [13], negative samples are sampled close to the
+ground truth, regardless of the properties of the true match. Green
+are the true matches and Red are the negative samples. (c) In the
+proposed method, the negative samples are sampled based on the
+displacement of the positive samples. Best viewed in color.
+lustrated in Fig. 1. Second, we suggest gradually increasing
+the difﬁculty of the negative samples during training.
+In the implementation of
+the second component,
+scheduling samples by difﬁculty, we combine two meth-
+ods well known in the literature. The curriculum learning
+method [6] selects samples, stratiﬁed by difﬁculty, using a
+predeﬁned order. The method of self-paced learning [24]
+identiﬁes a set of easy samples by their loss, and learns us-
+ing only those samples. The amount of samples deﬁned as
+easy is increased over time. The Self-Paced-Curriculum-
+Interleaving method we propose here combines in the se-
+lection process both the difﬁculty of a sample and its loss.
+However, in difference from the self-paced method, no sam-
+ples are excluded during training. Instead, we control the
+level of the difﬁculty of instances used for training by se-
+lecting negative samples of appropriate distances.
+The pipeline employed for computing optical ﬂow is
+similar to the PatchBatch method [13]. We slightly mod-
+ify it by replacing the DrLIM loss with a Hinge loss.
+Our main contributions in this work are:
+• We analyze, for the ﬁrst time, the need for multiple
+strategies in optical ﬂow.
+• We propose a novel, psychologically inspired way to
+train a network to address multiple scenarios at once.
+in optical ﬂow, our proposed new
+scheme translates to a simple, unexpected, heuristic.
+• We improve the PatchBatch[13] pipeline itself.
+• State of the art results are demonstrated on the KITTI
+Many computer vision tasks require a pixel-wise im-
+age comparison (e.g. image retrieval, object recognition,
+multi-view reconstruction). To allow for the comparison
+to be invariant to scale, rotation, illumination, etc., im-
+age descriptors such as SIFT [28], SURF [5], HOG [10],
+and DAISY [35] have been used. Brox and Malik were the
+ﬁrst to apply local descriptors to the problem of dense op-
+tical ﬂow [7]. They found that the use of descriptors en-
+ables better performance for large displacement matching,
+but that the obtained solution has many outliers due to miss-
+ing regularization constraints. In order to account for this,
+they used descriptors to build a sparse initial ﬂow and in-
+terpolate it to a dense one using image smoothness assump-
+tions. Following their success, many other models adopted
+the use of local descriptors [39, 30, 20, 34].
+With the advent of deep learning methods, CNNs were
+shown to be extremely powerful in the related problem of
+stereo matching [33, 41]. For optical ﬂow, a few CNN based
+models were proposed. In [37], a CNN is used to predict
+the ﬂow from a single static image. FlowNet [11] is the
+ﬁrst end-to-end CNN for optical ﬂow and showed compet-
+itive results. In the PatchBatch [13] pipeline, a CNN was
+used for extracting patch descriptors that are then used for
+matching via the PatchMatch [4] Nearest Neighbor Field
+(NNF) algorithms. It achieved state of the art performance
+in the KITTI benchmarks [15, 29] as of last year.
+While the use of descriptors has greatly improved overall
+performance and accuracy, methods keep failing with large
+displacements, as we further discuss in Section 4. To solve
+this problem, extensive efforts have been devoted to meth-
+ods for the integration of descriptors with local assump-
+tions [7, 34, 30]. However, much less work was done in
+making the descriptors themselves more suitable for this
+scenario. A concurrent work [3], focused on decreasing
+the error for large displacements by down-sampling patches
+and adding a threshold to the loss function. However, this
+comes at the cost of reducing the accuracy obtained for
+small displacements.
+In our work, we follow the PatchBatch pipeline and use a
+CNN to extract descriptors. We expand the work by analyz-
+ing different matching cases, speciﬁcally those of small and
+large displacements, and present a method for generating
+better matching descriptors for both cases.
+2.1. Learning for multiple strategies
+The need for multiple strategies was found in several vi-
+sion problems where the basic trained model could not op-
+timize the solution for all sub-categories. An example is the
+work of Antipov et al. [1] for age estimation. Unsatisﬁed
+by the accuracy of the model for children of age 0-12, they
+train a sub-model only for those ages and employ it to sam-
+ples that are classiﬁed as this category by another model
+that is run ﬁrst.
+Another common case is in ﬁne-grained classiﬁcation,
+e.g. determining the exact model of a car or a particular
+species of bird. The subtle differences between nearby
+species require, for example, to focus on speciﬁc body
+regions. However, different distinctions require different
+body parts and we can consider each body part as a sepa-
+rate decision strategy.
+In order to achieve the required accuracy, some meth-
+ods perform object segmentation [23] or part detection [22]
+to limit the search of each sub-class to the most relevant
+body parts. A different approach was shown in [14], where
+several models were trained on different samples to create
+per class expert models. At test time, the answer with the
+highest conﬁdence is chosen. The latter approach achieved
+better results due to each model leveraging all of the input
+data, and learning individually the required features to gain
+expertise in its task.
+2.2. Learning for varied difﬁculty levels
+Curriculum learning [6], inspired by the learning pro-
+cess of humans, was the ﬁrst method to manipulate the or-
+der of samples shown to the model during training. Specif-
+ically, it is suggested to present the easy training samples
+ﬁrst and the harder samples later, after performing stratiﬁ-
+cation based on the difﬁculty level.
+In self-paced learning [24], instead of using a predeﬁned
+order, the difﬁculty of each sample is dynamically estimated
+during training by inspecting the associated loss. On each
+epoch, only the easier samples are being learned from and
+their amount is increased with time until the entire data is
+considered. In the work of [19], those two methods were
+combined to allow a prior knowledge of samples difﬁculty
+to be considered in the self-paced iterations.
+It was recently proposed to eliminate from the training
+process samples that are either too easy or too hard [36]. For
+this purpose, speciﬁc percentiles on the loss were employed.
+algorithm creates the ﬁnal estimation using the sparse ﬂow
+and the original raw images. We refer the reader to the
+PatchBatch [13] paper and the published code1 for a more
+detailed description.
+3.1. Architecture improvements
+In this paper, we improve the CNN that generates the de-
+scriptors. We achieve this by several means. First, we adopt
+the suggestion, that was partially tested in the original PB
+paper [13], to enlarge the patch size from 51× 51 to 71× 71
+pixels. Second, to improve the training of the network we
+use two novelties: (1) We introduce a new learning method
+for multiple displacements detailed in Section 5.
+(2) We
+modify the loss function and use a new form of the Hinge
+loss. Third, we altered the initial random guess range of the
+PM algorithm on MPI-Sintel to be 100 instead of 10, to al-
+low larger search distance and better utilization of our large
+displacements descriptors. For the KITTI benchmarks, this
+parameter remained unchanged (500).
+Instead of the DrLIM [17] loss functions used in Patch-
+Batch, we found the Hinge loss to achieve best results when
+integrated with our, further detailed, learning method. To al-
+low the use of this loss, we construct the samples as triplets.
+For each patch, we collect a matching patch by the ground
+truth and a non-matching one. As a baseline, we use the
+same non-matching collecting method, which is a random
+patch up to 8 pixels from the matching one.
+We deﬁne the loss function as:
+(1)
+where D is the L2 distance of the examined patch descriptor
+from the matching or non-matching one.
+In the PatchBatch paper, an addition of a standard de-
+viation parameter was found to produce better distinction
+between matching and non-matching samples. With that
+inspiration, we apply a similar addition to the Hinge loss:
+4. Optical ﬂow as a multifaceted problem
+It is clear by examining the results of the common optical
+ﬂow benchmarks that optical ﬂow methods are challenged
+by large displacements. In the MPI-Sintel [8], where results
+are separated by the velocity of pixels, the current average
+Figure 2. Flow diagram of the PatchBatch pipeline. The same
+CNN is applied for patches from both images. PatchMatch [4]
+is applied twice in order to get both ﬂow directions.
+Samples which did not meet the loss criteria were put aside
+for a predeﬁned number of epochs.
+In the problem of optical ﬂow, large displacements are
+known to be more challenging. Moreover, as we show in
+Section 4, the descriptor extraction strategy should differ by
+displacement. Due to the correlation between the difﬁculty
+level and the required strategy, applying the existing gradual
+learning methods could result in acquiring speciﬁc strate-
+gies in different training stages with the possibility of un-
+wanted carryover. In Section 5, we suggest novel learning
+techniques, which use all samples, support different strate-
+gies and apply an easy to hard order.
+3. The PatchBatch pipeline
+The PatchBatch (PB) pipeline, as described in Fig. 2,
+consists of a CNN which generates per-pixel descriptors and
+an approximate nearest neighbor algorithm which is later
+used to compute the actual assignments. PatchBatch’s AC-
+CURATE network conﬁguration generates descriptors with
+512 ﬂoat values. The assignment is computed by minimiz-
+ing the L2 distance between descriptor vectors. To create
+each pixel’s descriptor, the CNN uses a patch as an input.
+In most of the CNN conﬁgurations described in PatchBatch,
+the input is a 51 × 51 patch centered around the examined
+pixel. The CNN uses the grayscale data of the patch to ex-
+tract a descriptor as similar as possible to the one extracted
+for the matching pixel on the second image.
+Using the generated descriptors, PatchMatch [4] (PM)
+algorithm is used to compute initial ﬂow assignments. PM
+is applied in both ﬂow directions and is followed by a bidi-
+rectional consistency check that allows elimination of non-
+consistent matches.
+1https://github.com/DediGadot/PatchBatch
+Train set
+Table 1. The increase of distractors with displacement and the success of models trained on a partial range, shown as average distractors
+amount by displacement range. The number of distractors for a given patch is the number of patches whose descriptors are within a smaller
+distance from it than the true match. Each column show the results for the Hinge+SD PB model trained on a speciﬁc displacement range.
+Figure 3. Correlation of larger displacements with larger distances
+between the true matches. The average L2 distance between de-
+scriptors of matching patches are shown grouped by displacement
+range. The descriptors were generated using a trained Hinge+SD
+PB model on the KITTI2012 benchmark.
+Figure 4. Extent of pixel displacement is correlated with appar-
+ent differences in the KITTI benchmark. Samples are gathered in
+triplets, in which the matching pair is next to a display that depicts
+by red dots locations with L1 distance larger than 0.2 between pix-
+els value. Each row show examples from a displacement range that
+appears to the left. Best viewed in color.
+end-point-error (EPE) of the top 10 ranked methods is 35.47
+for velocities higher than 40, while it is about 1.01 for ve-
+locities lower than 10. In KITTI2015 [29], there is no pub-
+lished estimation by velocity. However, there is separation
+of foreground vs. background regions. The current aver-
+age outliers percentage for the top 10 methods is 26.43%
+for foreground versus 11.43% for background, which, as-
+suming foreground objects typically move faster than back-
+ground, supports the same observation. When evaluating
+the baseline PatchBatch model on a validating set, we no-
+tice an error (percent of pixels with euclidean error > 3) of
+4.90% for displacements smaller than 10 and 42.15% for
+displacements larger than 40.
+The challenge of matching at larger distances is exem-
+pliﬁed in Fig. 3, which shows the L2 distance of the true
+match as a function of the ground truth displacement. Fur-
+thermore, as the distance increases, the average number of
+distractors in the second image, with higher similarity to
+patch in the ﬁrst image than the true match, increases. This
+counting is performed in a radius of 25 pixels around the
+true match and is shown in Tab. 1 under the Baseline train-
+ing set.
+best to train one network that addresses both scenarios. In-
+terestingly, when training just one network on all samples,
+the network seems to outperform the two specialized net-
+works in the domain of very small displacements. This is
+probably a result of designing the PatchBatch method to ex-
+cel in benchmarks that emphasize this category.
+Large displacements are typically associated with larger
+differences in appearance, as demonstrated in Fig.4. Dif-
+ferences in the patch appearance for the small displacement
+case typically arise from objects moving within the patch
+faster than the middle pixel. In contrast, in large motions,
+we can expect much more pronounced changes in appear-
+ance due to the following: (1) As fast objects move, their
+background is more likely to change. (2) The view point
+changes more drastically, which leads to different object
+parts being occluded. (3) The distance and angle to light
+sources vary more quickly, leading to a change in illumina-
+tion. (4) When a signiﬁcant displacement occurs along the
+Z-axis of the camera, the object changes in both position
+and scale.
+5. Learning for multiple strategies and varying
+4.1. Multiple strategies
+difﬁculty
+When training the PatchBatch network only on displace-
+ments that are smaller than 30, we are able to improve most
+cases of small displacements, while, in most cases increas-
+ing the number of nearby distractors for large displace-
+ments. Conversely, training only on displacements larger
+than 30 pixels, achieved a lower amount of distractors for
+large displacements (Tab. 1). However, since there is no
+mechanism for selecting between the two networks, it is
+As baseline methods, we apply gradual learning methods
+from the literature. For applying curriculum learning [6],
+the samples need to be stratiﬁed by difﬁculty prior to train-
+ing. Followed our previous ﬁndings, we deﬁne the difﬁ-
+culty level as the displacement value in the ground truth and
+increase the maximum displacement of the sample pool in
+each epoch which we call curriculum by displacement.
+Another curriculum implementation, which we call cur-
+riculum by distance, would be to use samples with all dis-
+placement values for each epoch, and to start the training
+using false samples that have a large euclidean distance in
+the image from the true matching. Decreasing that distance
+with training should provide harder false samples with time.
+We also implement a self-paced model by learning only
+from the easy samples in each epoch. Easiness here is mea-
+sured per sample by requiring a loss that is lower than a
+threshold. The threshold increases over the training.
+5.1. Interleaving learning
+We present a novel learning method for machine learn-
+ing, motivated by the cognitive literature.
+Both the curriculum learning approach as well as the self-
+paced one utilize the difﬁculty diversiﬁcation of the sam-
+ples and suggest to learn from easy to hard. While this
+idea might seem appealing, and does work in many ma-
+chine learning problems, it could cause the network to be-
+come overly adapted to different aspects of the problem at
+different training stages. In optical ﬂow, models must ex-
+cel in the low displacement task in order to be competitive.
+Therefore, the shift of attention to harder and harder tasks
+is potentially detrimental. In addition, if different strategies
+are required, the carryover from the easy task to the more
+challenging ones is not obvious.
+Our approach is motivated by psychological research.
+Kornell and Bjork, psychology researchers, found that for
+some cases, interleaving exemplars of different categories
+can enhance inductive learning [21]. Their tests showed that
+people learn better to distinguish classes, e.g. bird species,
+by learning in an interleaving sample order rather than
+blocks of the same class. Another example would be sports
+training, in which it is common to interleave simple basic
+exercises with more complex ones, incorporating at least
+part of the complex movements from very early, and going
+back to the basic movements even after these are mastered.
+The idiomatic way of training ML models is to random-
+ize the feeding order of the samples. When perceptual
+strategies and difﬁculty levels are unrelated, the random
+process might be sufﬁcient. However, when the samples
+that require some strategy A are consistently harder than
+the ones required for strategy B, the frequent loss related to
+the samples associated with A would mean that the strategy
+B would be deprived of a training signal.
+To preserve a random order of strategies, and, at the
+same time, facilitate the penalty of harder samples, we sug-
+gest that the learning process should consider the difﬁculty
+of each sample. This could be done by either taking the
+difﬁculty of the sample into account while computing the
+penalty or, when training by pairs or triplets of samples, by
+controlling the composition of these small reference groups.
+Figure 5. Illustration of the false sample collecting methodology
+for interleaving learning. p and pT represent a location in the ﬁrst
+frame and its true matching from the second frame respectively.
+pL is sampled along the motion line (p → pT ). The false sam-
+ple (pF ) is randomly chosen from inside the dashed area that is
+8 pixels from pL. The dotted gray line represents the log-normal
+distribution from which pL is taken (mostly closer to p).
+5.2. Interleaving learning for optical ﬂow
+The implementation of our method was done by using
+further patches as false samples for larger displacements.
+Thus, for the harder case of large displacements, we se-
+lect false samples that should be easier to distinguish from
+the true ones and normalize the overall difﬁculty. From the
+strategy point of view, by presenting further away negatives
+for large displacements, the model learns to rely more on
+context and less on appearance changes for large displace-
+ments and conversely for small ones.
+The chosen false sample distance is determined by:
+where v is the displacement of the matching pixels and X
+is sampled from a log-normal distribution [31].
+Using a log-normal distribution, allows us to take sam-
+ples mostly relative to the exemplar motion while also pro-
+viding a small amount of harder samples. We used µ = 0
+and σ = 1 as parameters and after sampling values for all
+of the batch samples, they were normalized to [0, 1].
+To implement this method in our learning process, we
+collect the false sample along the line connecting the orig-
+inal and the destined coordinates of the patch. Speciﬁcally,
+we randomly select a sample from a radius of up to 8 pix-
+els from the point with distance d from the true match on
+that line, in the direction of the position in the ﬁrst image
+(see Fig. 5). Interestingly, for the purpose of creating dual
+strategy descriptors, it does not matter whether the samples
+are from along the motion line. However, in our experi-
+ments, it turned out that sampling this way slightly helps
+the subsequent PM step. This is probably because PM ini-
+tially searches in a random distance from the original patch
+position. By taking a false match that is closer to the origi-
+nal location, we help eliminate those samples.
+5.3. Self(cid:173)Paced Curriculum Interleaving learning
+Given the interleaving learning method, which, unlike
+curriculum learning employs all samples at once, we can ex-
+Model / Learning
+method
+Error percent
+post PM post EF
+Distractors amount by displacement range
+10-20
+Table 2. Architecture and learning method comparison by the output error of the PatchMatch and EpicFlow steps in the pipeline and by
+distractors amount. SD symbols the addition of the standard deviation to the loss function, PS71 is for using a patch size of 71 × 71 pixels.
+Neg-mining was implemented as described in [33] with a factor of 2. See Section 5 for an explanation of the other learning methods. The
+error is the percent of pixels in the validation set with euclidean error > 3 pixels. Distractors are calculated as described in Section 4.
+pand it by adding a dynamic control on the difﬁculty level.
+In order to maintain the category diversity, we simply mod-
+ify the distance equation for epoch i to:
+di = v(1 − X − Ri)
+where Ri is deﬁne as:
+curriculum
+self-paced
+and m is the total epoch amount, li is the validation loss on
+epoch i and linit is some initial loss to compare. We deﬁned
+linit as the loss on epoch number 5. Until that epoch, self-
+pacing is not applied.
+The curriculum addition enhances the global difﬁculty of
+false samples in each iteration by shorting the taken distance
+and, therefore, integrates an instructor-driven approach as-
+suming the student will handle more difﬁcult tasks with
+time. To add a student-driven portion, we use the self-paced
+component which allows a feedback from the model to in-
+ﬂuence the difﬁculty of the next iteration. Integrating all of
+this together, we get a learning method that learns all strate-
+gies simultaneously and in which the difﬁculty is increased
+over iterations and with a success feedback.
+6. Experiments
+In order to validate our learning methods on a task dif-
+ferent from optical ﬂow, we used the MNIST handwritten
+digit database [25]. This data set consists of images show-
+ing a digit from 0 to 9 with their true label. We divided
+the data into two different classes – class L contains digits
+0..4 and class H contains 5..9 . To enable difﬁculty differ-
+entiation between samples, random noise was added to the
+top half of the images of H and to the bottom part of the
+L images. Furthermore, images from class H were rotated
+by a random angle of [0, 45] degrees with correlation to the
+noise amount, such that, samples that are more noisy are
+also rotated in larger angles.
+While referring noisier samples as harder, we trained
+a model using several methods. As curriculum learning,
+harder samples were added to the training pool in each
+epoch. In the self-paced model, the hardness of the sam-
+ples to learn from was derived from the loss. Interleaving
+was implemented by using all of the noise range level in
+each epoch with a fewer noised samples for the harder H
+class against more for L class. An integration of interleav-
+ing with Curriculum and Self-Paced methods was also used
+by increasing the the amount of the noised H samples in
+each epoch. As can be seen in Tab. 3, interleaving produced
+the greatest improvement and SPCI attained the best results.
+We perform two families of experiments. First, MNIST
+recognition experiments are presented as a testbed for the
+learning schemes. Then, the main set of experiments is per-
+formed on the speciﬁc problem of optical ﬂow.
+Method
+Method
+Table 3. The improvement of results on the MNIST experiment
+using interleaving methods. Column L shows the results on dig-
+its [0, 4] with random noise on the image bottom, and column H
+shows the results on digits [5, 9] rotated randomly by 0 to 45 de-
+grees with random noise at the top of the image .
+conduct a series of experiments to measure the effect of
+each of our contributions and to submit our best results to
+compare with other methods.
+By training the different models on a subset of 80% from
+the KITTI2012 dataset for 500 epochs and testing the results
+on the remaining 20% image pairs, we show a compari-
+son of the models summarized in Tab. 2. Note that lower
+PatchMatch (PM) error is not always correlated with lower
+EpicFlow (EF) error because of the bidirectional consis-
+tency check that excludes some inconsistent results to gen-
+erate a sparse ﬂow as an input for EF.
+Observing Tab. 2, one can notice that the use of the
+Hinge loss instead of CENT [13], improved the PM results
+and has no such effect on the ﬁnal EF output. However,
+combining with the batch standard deviation term (SD) and
+our interleaving learning (Inter) leads to an advantage of
+the Hinge loss. Our interleaving learning method outper-
+forms both Curriculum learning and Self-Paced learning.
+The SPCI technique contributes an additional improvement.
+Integrating all of our architecture modiﬁcations with
+SPCI produces the lowest error percent on the validation
+set with a major improvement on the initial baseline. More-
+over, the amount of nearby distractors with descriptors that
+are more similar to the original patch than the true match is
+reduced to one third of the baseline.
+As a sanity-check experiment we evaluate an Anti-
+Interleaving method. In this method, negative matches from
+different ranges were also used. However, the ratio was in-
+verted – true matches of small displacements were matched
+with false samples with large distances and vice versa. The
+high error of this model, as can be seen in Tab. 2, implies
+that the use of different ranges for false matches was not the
+main beneﬁt of the interleaving method and it is the corre-
+lation with the displacement values that is the crucial factor.
+We also experimented with hard-negative mining [33]
+and concluded that its beneﬁts are limited because, unlike
+the interleaving method, it might neglect some displace-
+ment ranges during the train.
+Baseline
+Cur. by displacement*
+Cur. by distance*
+Self-Paced*
+Anti-Interleaving
+Interleaving
+Interleaving+Cur.**
+Interleaving+SP**
+SPCI
+Table 4. Learning method comparison by descriptor sensitivity to
+location movement for different displacement ranges, measured by
+dividing the average distance of the descriptors of 5 pixels neigh-
+bor patches associated with a certain displacement range with the
+average obtained at for displacements smaller than 5 pixels. Meth-
+ods marked with * were implemented as described in the begin-
+ning of Section 5 and the ones marked with ** were trained like
+SPCI, but applying only one multiplier in Eq. 6. Using only grad-
+ual methods seems not to have any tendency relating to displace-
+ment value. In contrast, the interleaving models have learned to
+progressively decrease sensitivity for larger values.
+6.2.1 Sensitivity to appearance change
+Part of what the networks learn is to behave differently
+to patches with different expected displacements. Those
+patches that are similar to patches that are associated with
+small displacements are treated differently than those which
+were associated, in the training set, with large displace-
+ments. To illustrate this, and compare the various learning
+methods, we explore the model behavior on nearby patches
+from the same image for varied displacement ranges. First,
+we measure the average distance ¯d0−5 of a patch descriptor
+from that of a patch that is 5 pixels away for pixels which
+undergo a displacement of up to 5 pixels. Note that for a
+51 × 51 patch, only 18% of the pixels were completely re-
+placed in such a small displacement. Then, we repeat this
+to patches from various displacement ranges, taking again
+the average distance from a patch of 5 pixels away. To nor-
+malize, we divide this average distance by the ﬁrst average
+¯dL−H
+¯d0−5
+The results in Tab. 4 show that while the PatchBatch
+original model reacts almost similarly for all displacement
+ranges, interleaving trained models have learned to be less
+sensitive to appearance changes for larger displacements.
+Moreover, using only gradual learning, leads to high sensi-
+tivity across all ranges. This can be the result of the carry-on
+from the early learning stages on small displacements where
+appearance sensitivity is more valuable.
+We train our model on three datasets and submit the results
+of each benchmark on the respectively trained model. Our
+Method
+Out-Noc
+Table 5. Top 8 published KITTI2012 Pure Optical Flow meth-
+ods as of the submission date. Imp. PatchBatch denotes the PB
+pipeline with the improvements described in Section 3. Out-Noc
+is the percentage of pixels with euclidean error > 3 pixels out of
+the non-occluded pixels.
+Method
+Fl-all
+Table 6. Top 8 published KITTI2015 Pure Optical Flow meth-
+ods as of the submission date. Imp. PatchBatch denotes the PB
+pipeline with the improvements described in Section 3. Fl-all is
+the percentage of outliers (pixels with euclidean error > 3 pixels).
+Fl-bg, Fl-fg are the percentage of outliers only over background
+and foreground regions respectively.
+results are directly comparable with the PatchBatch model,
+since we use the same procedure as theirs – Training the
+CNN for 4000 epochs on 80% of the training set and choos-
+ing the best conﬁguration by selecting the one with the low-
+est validation error on samples from the remaining 20% of
+the data.
+The results can be seen in Tab. 5, 6, 7. We succeed in
+improving results in all three benchmarks and achieve state
+of the art results for KITTI2012 [15] and KITTI2015 [29].
+We evaluate our method only against methods not us-
+ing additional information for the ﬂow estimation, including
+those methods which used semantic segmentation.
+On KITTI2015, as can be seen on Tab. 6, we reduced
+the error of both foreground and background areas, obtain-
+ing the lowest error for both cases. The increased accuracy
+for both regions is correlated with our previous experiments
+and corroborate our claim of extracting better descriptors
+for all scenarios.
+In contrast to the error percent measurement of the
+KITTI benchmarks, MPI-Sintel uses an end-point-error
+(EPE) one. Compared to the original PatchBatch model,
+(Tab. 7) we succeed in preserving a low EPE for small dis-
+Method
+EPE
+Table 7. Comparison of our models with the top methods for the
+MPI-Sintel benchmark as of the submission date.
+Imp. Patch-
+Batch denotes the PB pipeline with the improvements described
+in Section 3. The EPE (end-point-error) is averaged over all the
+pixels and the two right columns contain only the EPE of pixels
+within the displacement range mentioned in the title. The Fl col-
+umn presents an evaluation of the the outlier percentage, which,
+although not provided by this benchmark, was calculated from the
+error ﬁgures presented for each scene that have higher pixel values
+for larger errors. Fl is the percentage of pixels with a value larger
+than 120.
+placements while signiﬁcantly reducing it for large ones.
+Our model does not achieve the best results when using
+the EPE measurement. However, when considering the per-
+centage of large error displacements, as calculated from the
+error images, our SPCI model is second best and our inter-
+leaving model is third.
+Our trained models are available on the PatchBatch
+GitHub repository.
+7. Conclusions
+Common sense dictates that most of the perceptual tasks
+are heterogeneous and require multiple strategies. The liter-
+ature methods address training in accordance with the dif-
+ﬁculty of speciﬁc samples. In our work, we show, for the
+ﬁrst time, how to address both multiple sub-tasks and vary-
+ing difﬁculty. The two are not independent – some sub-tasks
+are harder than others, and our interleaving methods address
+this challenge.
+Using the proposed novel methods, we are able to im-
+prove a recently proposed optical ﬂow model and obtain
+state of the art results on the two most competitive real-
+world benchmarks.
+Acknowledgments
+This research is supported by the Intel Collaborative Re-
+search Institute for Computational Intelligence (ICRI-CI).
+References
+[1] G. Antipov, M. Baccouche, S.-A. Berrani, and J.-L. Dugelay.
+Apparent age estimation from face images combining gen-
+eral and children-specialized deep learning models. In The
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion (CVPR) Workshops, June 2016.
+[2] C. Bailer, B. Taetz, and D. Stricker. Flow ﬁelds: Dense corre-
+spondence ﬁelds for highly accurate large displacement opti-
+cal ﬂow estimation. In Proceedings of the IEEE International
+Conference on Computer Vision (CVPR), pages 4015–4023,
+2015.
+[4] C. Barnes, E. Shechtman, D. B. Goldman, and A. Finkel-
+stein. The generalized patchmatch correspondence algo-
+rithm. In European Conference on Computer Vision (ECCV),
+pages 29–43. Springer, 2010.
+[7] T. Brox and J. Malik. Large displacement optical ﬂow: de-
+scriptor matching in variational motion estimation.
+IEEE
+transactions on pattern analysis and machine intelligence,
+33(3):500–513, 2011.
+[12] B. Drayer and T. Brox. Combinatorial regularization of de-
+scriptor matching for optical ﬂow estimation. In British Ma-
+chine Vision Conference (BMVC), volume 8, 2015.
+[13] D. Gadot and L. Wolf. Patchbatch: A batch augmented loss
+for optical ﬂow. In The IEEE Conference on Computer Vi-
+sion and Pattern Recognition (CVPR), June 2016.
+[14] Z. Ge, A. Bewley, C. McCool, P. Corke, B. Upcroft, and
+C. Sanderson. Fine-grained classiﬁcation via mixture of deep
+convolutional neural networks. In Winter Conference on Ap-
+plications of Computer Vision (WACV), pages 1–6. IEEE,
+2016.
+[15] A. Geiger, P. Lenz, and R. Urtasun. Are we ready for au-
+tonomous driving?
+In
+Conference on Computer Vision and Pattern Recognition
+(CVPR), 2012.
+the kitti vision benchmark suite.
+match for large displacement optical ﬂow.
+Self-paced curriculum learning. 2015.
+[20] R. Kennedy and C. J. Taylor. Optical ﬂow with geometric oc-
+clusion estimation and fusion of multiple frames. In Interna-
+tional Workshop on Energy Minimization Methods in Com-
+puter Vision and Pattern Recognition (CVPR), pages 364–
+377. Springer, 2015.
+[25] Y. LeCun and C. Cortes. MNIST handwritten digit database.
+[29] M. Menze and A. Geiger. Object scene ﬂow for autonomous
+In Conference on Computer Vision and Pattern
+[31] R.-D. Reiss and M. Thomas. Statistical Analysis of Extreme
+Values: with Applications to Insurance, Finance, Hydrology
+[32] J. Revaud, P. Weinzaepfel, Z. Harchaoui, and C. Schmid.
+Epicﬂow: Edge-preserving interpolation of correspondences
+for optical ﬂow.
+In Proceedings of the IEEE Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+1164–1172, 2015.
+[33] E. Simo-Serra, E. Trulls, L. Ferraz, I. Kokkinos, P. Fua, and
+F. Moreno-Noguer. Discriminative learning of deep convolu-
+tional feature point descriptors. In Proceedings of the IEEE
+International Conference on Computer Vision (ICCV), pages
+118–126, 2015.
+Learning to Count with CNN
+Boosting, pages 660–676. Springer International Publishing,
+Cham, 2016.
+[39] P. Weinzaepfel, J. Revaud, Z. Harchaoui, and C. Schmid.
+Deepﬂow: Large displacement optical ﬂow with deep match-
+ing. In Proceedings of the IEEE International Conference on
+Computer Vision (ICCV), pages 1385–1392, 2013.
+[40] J. Yang and H. Li. Dense, accurate optical ﬂow estima-
+tion with piecewise parametric model. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion (CVPR), pages 1019–1027, 2015.
+[41] S. Zagoruyko and N. Komodakis. Learning to compare im-
+age patches via convolutional neural networks. In Proceed-
+ings of the IEEE Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 4353–4361, 2015.

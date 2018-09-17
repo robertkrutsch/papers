@@ -1,0 +1,547 @@
+Full Flow: Optical Flow Estimation By Global Optimization over Regular Grids
+Qifeng Chen
+Stanford University
+Vladlen Koltun
+Intel Labs
+Abstract
+We present a global optimization approach to optical
+ﬂow estimation. The approach optimizes a classical optical
+ﬂow objective over the full space of mappings between dis-
+crete grids. No descriptor matching is used. The highly reg-
+ular structure of the space of mappings enables optimiza-
+tions that reduce the computational complexity of the algo-
+rithm’s inner loop from quadratic to linear and support efﬁ-
+cient matching of tens of thousands of nodes to tens of thou-
+sands of displacements. We show that one-shot global op-
+timization of a classical Horn-Schunck-type objective over
+regular grids at a single resolution is sufﬁcient to initialize
+continuous interpolation and achieve state-of-the-art per-
+formance on challenging modern benchmarks.
+to heuristically prune the space of ﬂows using descriptor
+matching.
+In this work, we develop a global optimization approach
+that optimizes the classical ﬂow objective (1) over the
+full space of mappings between discrete grids. Our work
+demonstrates that a direct application of global optimiza-
+tion over full regular grids has signiﬁcant beneﬁts. Since
+the highly regular structure of the space of mappings is pre-
+served, we can employ optimizations that take advantage
+of this structure to reduce the computational complexity of
+the algorithm’s inner loop. The overall approach is simple
+and does not involve separately-deﬁned descriptor match-
+ing modules: simply optimizing the classical ﬂow objective
+over full grids is sufﬁcient. We show that this minimalistic
+approach yields state-of-the-art accuracy on both the Sin-
+tel [8] and the KITTI 2015 [29] optical ﬂow benchmarks.
+1. Introduction
+2. Background
+Optical ﬂow is a vital source of information for visual
+perception. Animals use optical ﬂow to track and con-
+trol self-motion, to estimate the spatial layout of the en-
+vironment, and to perceive the shape and motion of ob-
+jects [36, 43]. In computer vision, optical ﬂow is used for
+visual odometry, three-dimensional reconstruction, object
+segmentation and tracking, and recognition.
+The classical approach to dense optical ﬂow estimation
+is to optimize an objective of the form
+where f is the estimated ﬂow ﬁeld, Edata is a data term
+that penalizes association of visually dissimilar areas, and
+Ereg is a regularization term that penalizes incoherent mo-
+tion [22]. Traditionally, this objective is optimized by iter-
+ative local reﬁnement that maintains and updates a single
+candidate ﬂow [39]. This local reﬁnement does not opti-
+mize the objective globally over the full space of ﬂows and
+is prone to local minima.
+Global optimization of the ﬂow objective has gener-
+ally been considered intractable unless signiﬁcant restric-
+tions are imposed [38]. Menze et al. [30] achieved impres-
+sive results with a discrete optimization approach, but had
+The variational approach to optical ﬂow originates with
+Horn and Schunck [22]. This elegant approach posits a
+clear global objective (1) and produces a dense ﬂow ﬁeld
+connecting the two images. Since the space of ﬂows is so
+large, the variational objective has traditionally been opti-
+mized locally. Starting with a simple initialization, the ﬂow
+is iteratively updated by gradient-based steps [4, 6, 39].
+Through these iterations, a single candidate ﬂow is main-
+tained. While this local reﬁnement approach can be accu-
+rate when displacements are small [3, 39], it does not opti-
+mize the objective globally over the full space of ﬂows and
+is prone to local minima.
+Recent methods have used descriptor matching and near-
+est neighbor search to initialize the continuous reﬁnement
+[7, 45, 11, 44, 32, 2]. This more sophisticated initialization
+is known to signiﬁcantly improve results in the presence
+of large displacements. However, the descriptor matching
+module is trained separately, does not optimize a coher-
+ent objective over the provided correspondence sets, and
+can yield globally suboptimal initializations. We show that
+state-of-the-art accuracy can be achieved by globally opti-
+mizing the classical objective (1), with no separately trained
+or designed descriptors.
+A number of approaches to global optimization for op-
+tical ﬂow estimation have been proposed. Steinbr¨ucker et
+al. [37] use an alternating scheme to optimize a quadratic
+relaxation of the global objective. This formulation relies
+on the assumption that the regularizer is convex. A num-
+ber of subsequent approaches use functional lifting to map
+the problem into a higher-dimensional space, where the op-
+timization reduces to estimating a collection of hypersur-
+faces [20, 19, 38]. These schemes likewise impose certain
+assumptions on the model, such as requiring the data term
+or the regularizer to be convex. In general, these approaches
+have not been shown to produce state-of-the-art results on
+modern benchmarks.
+Our approach treats objective (1) as a Markov ran-
+dom ﬁeld and uses discrete optimization techniques. The
+Markov random ﬁeld perspective on optical ﬂow estimation
+dates back to the 80s and discrete optimization techniques
+have been applied to the problem in different forms since
+that time [26, 21]. Glocker et al. [18, 17] applied MRF opti-
+mization to sets of control points in coarse-to-ﬁne schemes.
+In contrast, we operate on dense grids with large two-
+dimensional label spaces. A number of works considered a
+simpliﬁed MRF formulation that decomposes the horizon-
+tal and vertical components of the ﬂow [34, 27, 47]. In con-
+trast, we demonstrate the feasibility of operating on much
+larger models with two-dimensional label spaces. Lem-
+pitsky et al. [28] iteratively improved the estimated ﬂow
+ﬁeld by generating proposals and integrating them using the
+QPBO algorithm.
+In contrast, we optimize over the full
+space of mappings between discrete grids. Komodakis et
+al. [25] evaluated MRF optimization on optical ﬂow esti-
+mation with small displacements. In contrast, we show that
+global optimization over full two-dimensional label spaces
+is tractable and yields state-of-the-art performance on chal-
+lenging large-displacement problems.
+Menze et al. [30] pruned the space of ﬂows using fea-
+ture descriptors and optimized an MRF on the pruned la-
+bel space. In contrast, we argue that operating on the full
+space is both feasible and desirable. First, we avoid heuris-
+tic pruning and the reliance on separately-deﬁned feature
+descriptors that are not motivated by the ﬂow objective it-
+self. Second, pruning destroys the highly regular structure
+of the space of mappings. We show that optimization over
+the full space can be signiﬁcantly accelerated due to the reg-
+ularity of the space. In particular, the full regular structure
+enables the use of highly optimized min-convolution algo-
+rithms that reduce the complexity of message passing from
+quadratic to linear [15, 9].
+Figure 1. Optical ﬂow over regular grids. Each pixel p in I1 is
+spatially connected to its four neighbors in I1 and temporally con-
+nected to (2ς + 1)2 pixels in I2.
+surrounding buffer zone. The buffer zone absorbs pixels
+that ﬂow out of the visual ﬁeld. The augmented domain
+Ω ⊂ Z2 is the Minkowski sum of Ω and [−ς, ς]2∩Z2, where
+ς is the maximal empirical displacement magnitude. The
+maximal empirical displacement magnitude is measured by
+taking the maximal displacement observed in a training set.
+For example, the maximal displacement magnitude on the
+KITTI training set [16, 29] is 242 pixels. We perform the
+optimization on 1/3-resolution images, so ς = 81 for the
+KITTI dataset.
+Our objective function is
+where N CC is the normalized cross-correlation between
+two patches, one centered at p in I1 and one centered at
+(p+fp) in I2, computed in each color channel and averaged.
+The truncation at zero prevents penalization of negatively
+correlated patches. If (p + fp) is in the buffer zone Ω \ Ω,
+the data term is set to a constant penalty ζ.
+Our optimization approach assumes that the regulariza-
+tion term has the following form:
+where f 1, f 2 are the two components of vector f and ρ(·)
+is a penalty function, such as the L1 norm or the Charbon-
+nier penalty. Our formulation and the general solution strat-
+egy can accomodate non-convex functions ρ, such as the
+Lorentzian and the generalized Charbonnier penalties. The
+reduction of message passing complexity from quadratic to
+linear, described in Section 4.2, applies to such functions
+as well [9]. The highly efﬁcient min-convolution algorithm
+described in Section 4.3 will assume that the function ρ is
+convex. Other linear-time algorithms can be used if this as-
+sumption doesn’t hold [9].
+Note that the regularization term (4) couples the horizon-
+tal and vertical components of the ﬂow. We apply a Laplace
+weight to attenuate the regularization along color disconti-
+nuities:
+4. Optimization
+Objective (2) is a discrete Markov random ﬁeld with a
+two-dimensional label space [5]. At ﬁrst glance, global op-
+timization of this model may appear intractable. The num-
+ber of nodes and the number of labels are both in the tens of
+thousands. The most sophisticated prior application of dis-
+crete optimization to this problem resorted to pruning of the
+label space to bring the size of the problem under control
+[30]. We show that the full problem is tractable.
+4.1. Message passing algorithm
+The label space of the model is [−ς, ς]2 ∩ Z2. Let
+N = |Ω| be the number of nodes and let M = (2ς + 1)2 be
+the size of the label space. To optimize the model, we use
+TRW-S, which optimizes the dual of a natural linear pro-
+gramming relaxation of the problem [42, 24]. We choose
+TRW-S due to its effectiveness in optimizing models with
+large label spaces [40, 10]. Note that TRW-S optimizes the
+dual objective and will generally not yield the optimal solu-
+tion to the primal problem.
+For notational simplicity, we omit the weights wp,q, al-
+though incorporating the weights into the presented method
+is straightforward. We ﬁrst write down objective (2) as an
+equivalent discrete labeling problem. Let L = [−ς, ς]2 ∩Z2
+be the candidate ﬂow vectors and |L| = M = (2ς + 1)2.
+We optimize the following objective with respect to the la-
+beling l : Ω → L:
+θ are the potentials for the data and pairwise terms. Instead
+of directly minimizing objective (5), TRW-S maximizes a
+lower bound that arises from a reparametrization of θ. ˜θ is
+said to be a reparametrization of θ iff ˜θ(l) ≡ θ(l). TRW-S
+constructs reparameterizations of the following form:
+where mp→q is a message (a vector of size M) that pixel
+p sends to its neighbor q [24]. Given a reparameterization
+˜θ, a lower bound for θ(l) can be obtained by summing the
+minima of all the potentials:
+min
+TRW-S maximizes Φ( ˜θ) by ﬁrst iterating over all pixels in a
+given order (e.g., in scanline order or by sweeping a diago-
+nal wavefront from one corner of the image to its antipode).
+When pixel p is reached, the following message update rule
+is applied to each mp→q for which q has not been visited
+yet:
+The pixels are then visited in reverse order with analo-
+gous message update rules. This completes one forward-
+backward pass, considered to be one iteration. A number of
+iterations are performed.
+Given updated messages m, we can compute a solution
+l greedily [24]. We determine the labels sequentially in
+a given order. Upon reaching pixel p, we choose a label
+q<p θpq(lp, lq) +
+p<q mq→p(lp), where p < q means that p precedes q in
+the order.
+4.2. Complexity reduction
+A brute-force implementation of a message update re-
+quires O(M 2) operations as there are M elements in
+each message and computing each element directly re-
+quires O(M ) operations according to update rule (6). We
+now show that a message update can be performed us-
+ing O(M ) operations in our model. This builds on the
+min-convolution acceleration scheme developed by Felzen-
+szwalb and Huttenlocher [14, 15]. A general treatment
+of the one-dimensional case was presented by Chen and
+Koltun [9].
+We begin by rewriting the message update rule (6) as
+Each φpq(s) can be computed using O(1) operations, thus
+φpq can be computed using O(M ) operations in total. We
+now show that, given φpq, all elements of the message
+mp→q can be computed in O(M ) operations as well. Recall
+that θpq(s, t) = ρS(t − s) and that ρS(·) has the form given
+in equation (4). Rearranging terms, we obtain
+Tpq can be computed using O(M ) operations given φpq.
+We now show that Dpq can also be computed using O(M )
+operations in total. Note that s and t are 2D vectors.
+Abusing notation somewhat, we can rewrite Dpq(t) as a
+(cid:17)
+two-dimensional min-convolution:
+Dpq(t1, t2) = min
+√
+This can be decomposed into two sets of O(
+one-dimensional min-convolutions:
+A min-convolution has the following general form:
+It is well-known that the min-convolution can be computed
+using O(n) operations, where n =
+M = 2ς + 1 [9].
+However, commonly used algorithms require computing in-
+tersections of shifted copies of the function ρ. While each
+intersection can be computed in time O(1), this computa-
+tion can be numerically intensive for some penalty func-
+tions. Since this computation is in the inner loop, it can
+slow the optimization down. We now review an alternative
+algorithm that can be used to compute the min-convolution
+without computing intersections. This algorithm relies on
+the assumption that ρ is convex, which is otherwise not nec-
+essary. Related algorithms are reviewed by Eppstein [13].
+The algorithm is based on totally monotone matrix
+searching [1]. Let A be an n×n matrix, such that A(i, j) =
+g(j) + ρ(i − j). Let indA(i) be the column index of the
+minimal element in the ith row of A. The min-convolution
+h can be deﬁned as h(i) = A(i, indA(i)). The challenge is
+to evaluate indA in time O(n) without explicitly construct-
+ing the matrix A.
+The convexity of ρ implies that A is totally monotone.
+The totally monotone matrix search algorithm computes
+indA in O(n) operations by divide-and-conquer. The al-
+2 ×n submatrix B by removing
+gorithm ﬁrst constructs an n
+2 subma-
+every other row of A. Then B is reduced to an n
+trix C by removing columns that do not contain minima of
+the rows of B. The minima indC are computed recursively,
+after which the missing elements of indA are ﬁlled in. As
+shown by Aggarwal et al. [1], all steps can be performed in
+time O(n). Crucially, all steps can be performed without
+explicitly constructing A.
+5. Implementation
+Parallelization. To reduce wall-clock time, we imple-
+mented a parallelized TRW-S solver. This general-purpose
+solver along with the rest of our implementation will be
+made freely available. At each step of TRW-S, a pixel is
+ready to be processed if all of its predecessors have already
+been updated during the current iteration. Thus at any time
+there is a wavefront of pixels that can be processed in paral-
+lel. A grid can be swept diagonally. In the ﬁrst step only one
+node can be processed, but the size of the wavefront grows
+rapidly and all nodes on the wavefront can be processed in
+parallel. This parallelization scheme has previously been
+explored on special-purpose hardware for stereo match-
+ing [12]. We have implemented the scheme on general-
+purpose processors. Our implementation is evaluated on a
+workstation with a 6-core Intel i7-4960X CPU. Paralleliza-
+tion with hyper-threading reduces the running time of each
+iteration of TRW-S from 256 to 39 seconds, a factor of 6.6.
+Since the size of the wavefront is Θ(ς) for most of the itera-
+tion, increased hardware parallelism is expected to directly
+translate to reduction in wall-clock time. We also refer the
+reader to the concurrent work of Shekhovtsov et al. [35],
+who developed a parallelized energy minimization scheme
+that may be applicable to our setting.
+Occlusion handling. Some pixels in I1 may not have
+corresponding points in I2. The computed ﬂow ﬁeld on
+these occlusion pixels is likely incorrect. We adopt the
+common tactic of forward-backward consistency checking:
+compute the forward ﬂow from I1 to I2 and the backward
+ﬂow from I2 to I1, and discard inconsistent matches [31].
+Given the forward ﬂow ﬁeld f and the backward ﬂow ﬁeld
+(b) Before interpolation
+(c) After interpolation
+(d) Ground truth
+Figure 2. Postprocessing. (a) shows the average of two input images. (b) shows the optimized ﬂow ﬁeld after forward-backward consistency
+checking. (c) shows the result after EpicFlow interpolation. (e) and (f) show the corresponding EPE maps, truncated at 10 pixels.
+f(cid:48), the following criterion is used to determine whether a
+match is consistent. For each pixel p in I1 and its match
+(p + fp) in I2, fp is said to be consistent if there is a pair
+q, q) ∈ I1× I2 that is close to the pair (p, p + fp).
+(q + f(cid:48)
+Speciﬁcally, for each fp, we check if there exists f(cid:48)
+q for
+which
+values in the unary cost volume takes 51 seconds. We use
+3×3 patches for NCC in 1/3-resolution images. Performing
+3 iterations of TRW-S using the general optimization frame-
+work described in Section 4 takes about 2 minutes on either
+Sintel or KITTI images, downsampled by a factor of 3, with
+any penalty function ρ. When the penalty function is the L1
+norm, we can accelerate the optimization further with the
+L1 distance transform [15], which reduces the running time
+to about 30 seconds for 3 iterations of TRW-S. EpicFlow
+interpolation takes 3 seconds. For each dataset, we train the
+parameters on 5% of the training set by grid search. We use
+the same parameters for the ‘ﬁnal’ and ‘clean’ sequences in
+the Sintel dataset.
+two point
+Postprocessing. We optimize the model described in Sec-
+tion 3, remove inconsistent matches as described in the
+previous paragraph, and then interpolate the results to get
+subpixel-resolution ﬂow. We use the EpicFlow interpo-
+lation scheme [32], which has become a common post-
+processing step in recent state-of-the-art pipelines [2, 30].
+Since an interpolation step is necessary to obtain subpixel-
+accurate ﬂow, the discrete optimization need not operate at
+the highest resolution. We found that optimizing the pre-
+sented model on 1/3-resolution images still yields state-of-
+the-art performance. We attribute this both to the power
+of the presented global optimization approach and to the
+effectiveness of the EpicFlow interpolation scheme. The
+postprocessing is illustrated in Figure 2.
+6. Experiments
+The presented approach is implemented in Matlab, with
+a C++ wrapper for the parallelized TRW-S solver. Our Mat-
+lab code is less than 50 lines long, not including the general-
+purpose solver.
+In experiments reported in this section, we use the L1
+norm for regularization (ρ(x) = |x|) and no truncation
+(τ = ∞). This decision is motivated by the controlled ex-
+periments reported in Section 6.2.
+for
+a dataset
+MPI Sintel. MPI Sintel
+large-
+displacement optical ﬂow [8]. There are two types of
+sequences in the dataset, clean and ﬁnal.
+The clean
+sequences exhibit a variety of illumination and shading
+effects including specular reﬂectance and soft shadows.
+The ﬁnal sequences additionally have motion blur, depth of
+ﬁeld, and atmospheric effects.
+The experimental results are provided in Table 1. We
+use the 10 metrics reported by Bailer et al. [2], including
+all, noc, occ, d0-10, and s40+ for both clean and ﬁnal test
+sequences. All the errors are measured as endpoint error
+(EPE), which is the Euclidean distance between the esti-
+mated ﬂow vector and the ground truth. Since some error
+metrics are extremely close for different methods, and be-
+cause the average EPE is sensitive to outliers (the top meth-
+ods generally have errors of 20 to 40 pixels on a number
+FullFlow
+Final pass
+occ
+all
+Clean pass
+occ
+Table 1. Endpoint errors of different methods on the MPI Sintel test set. This table lists the most accurate methods and the Classic+NL
+baseline. ‘all’ = over the whole image. ‘noc’ = non-occluded pixels. ‘occ’ = occluded pixels. ‘d0-10’ = within 10 pixels of an occlusion
+boundary. ‘s40+’ = displacements larger than 40 pixels.
+of challenging sequences), we highlight every method that
+achieves within 1% of the lowest reported error as one of
+the top methods according to that error metric.
+KITTI 2015. KITTI Optical Flow 2015 is an optical ﬂow
+dataset that comprises outdoor images of dynamic scenes
+captured from a car [16, 29]. The car is equipped with a
+LiDAR sensor and color cameras. Ground-truth ﬂow is ob-
+tained by rigid alignment of the static environment and by
+ﬁtting CAD models to moving objects. Ground-truth corre-
+spondences are sparse. The dataset contains 200 training se-
+quences and 200 test sequences. A ﬂow vector is considered
+an outlier if its endpoint error is 3 pixels or higher. Table 2
+lists the most accurate methods on this dataset, along with
+the classical Horn-Schunck algorithm for reference. Note
+that SOF [33] was developed concurrently with our work
+and uses substantially more information at training time, at
+the cost of generality.
+FullFlow
+all
+non-occluded
+Table 2. Accuracy of different methods on the KITTI 2015 test
+set. This table lists the percentage of outliers on all pixels and on
+non-occluded pixels.
+Qualitative results.
+In Figure 4, we compare our visual
+results to EpicFlow and DiscreteFlow on three scenes from
+MPI Sintel and three scenes from KITTI 2015. On MPI
+Sintel, our approach performs well on regions with large
+displacements (we rank ﬁrst on s40+ in Table 1). This is
+also reﬂected in the visual results. See the ﬂapping wings
+in scene 1 and the ﬂying butterﬂy in scene 2. In scene 3,
+all three methods fail but our approach and DiscreteFlow
+recover more of the ﬂow ﬁeld than EpicFlow. On KITTI
+2015, our approach is visually similar to DiscreteFlow in
+most street scenes (for example, scene 1). In some cases,
+our approach is visually more accurate (scene 2), but not
+on others (outliers on the white line in scene 3). Both our
+approach and DiscreteFlow are visually more accurate than
+EpicFlow.
+6.2. Controlled experiments
+The generality of the presented optimization framework
+enables a comprehensive evaluation of different data terms
+and regularization terms. We perform such an evalua-
+tion using 5% of the MPI Sintel training set (ﬁnal pass).
+In all conditions, we optimize variants of the model pre-
+sented in Section 3 using the method presented in Sections
+4 and 5. We evaluate two data terms: the patch-based trun-
+cated NCC term given in equation (3) and the classical pix-
+elwise Horn-Schunck data term given by the squared Eu-
+clidean distance in RGB color space. We also evaluate three
+penalty functions for the regularization term (equation 4):
+L1 (ρ(x) = |x|), squared L2 (ρ(x) = x2), and Charbonnier
+(ρ(x) =
+x2 + ε2, where ε = 5). For each penalty func-
+tion, we evaluate a truncated regularizer (τ is determined by
+grid search) and a non-truncated convex form (τ = ∞). All
+free parameters are determined by grid search.
+The results are shown in Table 3, which provides the av-
+erage EPE over the images used for the evaluation for each
+combination of the three factors (data term, penalty func-
+tion, truncation). The results suggest that the data term is of
+primary importance: the patch-based truncated NCC term
+is much more effective than the pixelwise Horn-Schunck
+data term, irrespective of the regularizer. Note that the non-
+truncated HS+L2 condition corresponds to global optimiza-
+NCC+Charbonnier
+HS+Charbonnier
+Truncated Non-truncated
+Table 3. Controlled evaluation of the data term, penalty function,
+and truncation. Lower is better. The patch-based NCC data term
+is much more effective than the pixelwise HS data term.
+tion of the classical Horn-Schunck model. The results for
+the non-truncated NCC+L2 condition indicate that by re-
+placing the pixelwise Horn-Schunck data term with patch-
+based truncated NCC, retaining the classical non-truncated
+quadratic regularizer, and globally optimizing the objective
+we come within 10% of the accuracy achieved by our top-
+performing variant. The key factors are global optimization
+and a patch-based data term.
+Figure 3. Average endpoint error for each tested image, sorted by
+magnitude in each condition. Lower is better. The tested images
+are sorted independently for each condition: for example, image
+#40 is not the same for different conditions.
+Figure 3 provides a more detailed visualization of the
+results. For each condition, the ﬁgure shows the average
+endpoint error for each tested image, sorted by magnitude.
+This ﬁgure shows models with truncation in the regularizer.
+The plots indicate that for most tested images the accuracy
+achieved by global optimization is high in all conditions,
+irrespective of the tested factors. The different conditions,
+speciﬁcally the two data terms, are distinguished by their
+robustness when accuracy is low. The patch-based NCC
+data term limits the error on challenging images much more
+effectively than the pixelwise HS data term.
+To summarize, the presented optimization approach was
+designed to support global optimization with very general
+data and regularization terms. The generality of the pre-
+sented framework enabled a controlled evaluation of global
+optimization with different data terms and regularizers. The
+results indicate that within a global optimization framework
+the detailed form of the regularizer is less important than the
+data term, the classical quadratic regularizer yields compet-
+itive performance, and the highest accuracy is achieved us-
+ing the L1 penalty.
+7. Conclusion
+We have shown that optimizing a classical Horn-
+Schunck-type objective globally over full regular grids
+is sufﬁcient to initialize continuous interpolation and ob-
+tain state-of-the-art accuracy on challenging modern opti-
+cal ﬂow benchmarks. In particular, this demonstrates that
+state-of-the-art accuracy on large-displacement optical ﬂow
+estimation can be achieved without externally deﬁned de-
+scriptors. The ﬂow objective itself is sufﬁciently powerful
+to produce accurate mappings even in the presence of large
+displacements. We have shown that optimizing the objec-
+tive globally over the full space of mappings between reg-
+ular grids is feasible and that the regular structure of the
+space enables signiﬁcant optimizations.
+Our Matlab implementation is less than 50 lines long,
+excluding the general-purpose TRW-S solver. We hope
+that the simplicity of our approach will support further ad-
+vances. More advanced data terms can easily be integrated
+into our global optimization framework and are likely to
+yield even more accurate results. In addition, we believe
+that there is scope for further improvement in continuous
+interpolation accuracy, building on the impressive perfor-
+mance of the interpolation scheme of Revaud et al. [32].
+The output of the presented global optimization approach
+can serve as a canonical initialization for benchmarking
+such continuous interpolation schemes.
+References
+(e) Ground truth
+Figure 4. Qualitative comparison on three scenes from the MPI Sintel training set (top) and three scenes from the KITTI 2015 training
+set (bottom). Two rows of images per scene. (a) shows the average of two input images. (b-d) show the ﬂow ﬁelds, and (f-h) show the
+corresponding EPE maps, truncated at 10 pixels. The arrangement of images is the same for each scene.
+[9] Q. Chen and V. Koltun. Fast MRF optimization with appli-
+[10] Q. Chen and V. Koltun. Robust nonrigid registration by con-
+[13] D. Eppstein. Sequence comparison with mixed convex and
+[14] P. F. Felzenszwalb and D. P. Huttenlocher. Efﬁcient belief
+[20] T. Goldstein, X. Bresson, and S. Osher. Global minimization
+of Markov random ﬁelds with applications to optical ﬂow.
+Inverse Problems and Imaging, 6(4), 2012. 2
+[24] V. Kolmogorov. Convergent tree-reweighted message pass-
+[29] M. Menze and A. Geiger. Object scene ﬂow for autonomous
+ﬂow with semantic segmentation and localized layers.
+CVPR, 2016. 6
+[35] A. Shekhovtsov, C. Reinbacher, G. Graber, and T. Pock.
+Solving dense image matching in real-time using discrete-
+continuous optimization. In Proc. Computer Vision Winter
+Workshop, 2016. 4
+[36] M. V. Srinivasan. Honeybees as a model for the study of
+visually guided ﬂight, navigation, and biologically inspired
+robotics. Physiological Reviews, 91(2), 2011. 1
+[43] W. H. Warren. Self-motion: Visual perception and visual
+control. In Perception of Space and Motion. Academic Press,
+1995. 1

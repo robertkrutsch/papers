@@ -1,0 +1,729 @@
+InstanceCut: from Edges to Instances with MultiCut
+Alexander Kirillov1 Evgeny Levinkov2 Bjoern Andres2 Bogdan Savchynskyy1 Carsten Rother1
+1TU Dresden, Dresden, Germany
+2MPI for Informatics, Saarbr¨ucken, Germany
+1name.surname@tu-dresden.de
+2surname@mpi-inf.mpg.de
+Abstract
+This work addresses the task of instance-aware seman-
+tic segmentation. Our key motivation is to design a sim-
+ple method with a new modelling-paradigm, which there-
+fore has a different trade-off between advantages and dis-
+advantages compared to known approaches. Our approach,
+we term InstanceCut, represents the problem by two output
+modalities: (i) an instance-agnostic semantic segmentation
+and (ii) all instance-boundaries. The former is computed
+from a standard convolutional neural network for semantic
+segmentation, and the latter is derived from a new instance-
+aware edge detection model. To reason globally about the
+optimal partitioning of an image into instances, we com-
+bine these two modalities into a novel MultiCut formulation.
+We evaluate our approach on the challenging CityScapes
+dataset. Despite the conceptual simplicity of our approach,
+we achieve the best result among all published methods, and
+perform particularly well for rare object classes.
+1. Introduction
+This work addresses the task of segmenting each indi-
+vidual instance of a semantic class in an image. The task is
+known as instance-aware semantic segmentation, in short
+instance segmentation, and is a more reﬁned task than se-
+mantic segmentation, where each pixel is only labeled with
+its semantic class. An example of semantic segmentation
+and instance segmentation is shown in Fig. 1a-1b. While
+semantic segmentation has been a very popular problem to
+work on in the last half decade, the interest in instance seg-
+mentation has signiﬁcantly increased recently. This is not
+surprising since semantic segmentation has already reached
+a high level of accuracy, in contrast to the harder task of
+instance segmentation. Also, from an application perspec-
+tive there are many systems, such as autonomous driving or
+robotics, where a more detailed understanding of the sur-
+rounding is important for acting correctly in the world.
+In recent years, Convolutional Neural Networks (CNN)
+have tremendously increased the performance of many
+computer vision tasks. This is also true for the task of in-
+Figure 1: An image from the CityScapes dataset [13]: (a)
+Ground truth semantic segmentation, where all cars have
+the same label. (b) The ground truth instance segmentation,
+where each instance, i.e. object, is highlighted by a dis-
+tinct color. In this work we use a “limiting” deﬁnition of
+instance segmentation, in the sense that each instance must
+be a connected component. Despite this limitation, we will
+demonstrate high-quality results. (c) Shows the result of our
+InstanceCut method. As can be seen, the front car is split
+into two instances, in contrast to (b). (d) Our connected-
+component instances are deﬁned via two output modalities:
+(i) the semantic segmentation, (ii) all instance-boundaries
+(shown in bold-black).
+stance segmentation, see the benchmarks [13, 37]. How-
+ever, for this task it is, in our view, not clear whether the
+best modelling-paradigm has already been found. Hence,
+the motivation of this work is to explore a new, and very
+different, modelling-paradigm. To be more precise, we be-
+lieve that the problem of instance segmentation has four
+core challenges, which any method has to address. Firstly,
+the label of an instance, e.g. “car number 5”, does not
+have a meaning, in contrast to semantic segmentation, e.g.
+class “cars”. Secondly, the number of instances in an image
+can vary greatly, e.g. between 0 and 120 for an image in
+the CityScapes dataset [13]. Thirdly, in contrast to object
+detection with bounding boxes, each instance (a bounding
+box) cannot simply be described by four numbers (corners
+of bounding box), but has to be described by a set of pixels.
+Finally, in contrast to semantic segmentation, a more reﬁned
+labeling of the training data is needed, i.e. each instance has
+to be segmented separately. Especially for rare classes, e.g.
+motorcycles, the amount of training data, which is avail-
+able nowadays, may not be sufﬁcient. Despite these chal-
+lenges, the state of the art techniques for instance segmenta-
+tion are CNN-based. As an example, [16, 53] address these
+challenges with a complex multi-loss cascade CNN archi-
+tectures, which are, however, difﬁcult to train. In contrast,
+our modelling-paradigm is very different to standard CNN-
+based architectures: assume that each pixel is assigned to
+one semantic class, and additionally we insert some edges
+(in-between pixels) which form loops – then we have solved
+the problem of instance segmentation! Each connected re-
+gion, enclosed by a loop of instance-aware edges is an indi-
+vidual instance where the class labels of the interior pix-
+els deﬁne its class. These are exactly the ingredients of
+our approach: (i) a standard CNN that outputs an instance-
+agnostic semantic segmentation, and (ii) a new CNN that
+outputs all boundaries of instances. In order to make sure
+that instance-boundaries encircle a connected component,
+and that the interior of a component has the same class la-
+bel, we combine these two outputs into a novel multi-cut
+formulation. We call our approach InstanceCut.
+Our InstanceCut approach has some advantages and dis-
+advantages, which we discuss next. With respect to this, we
+would like to stress that these pros and cons are, however,
+quite different to existing approaches. This means that in
+the future we envision that our approach may play an im-
+portant role, as a subcomponent in an “ultimate” instance
+segmentation system. Let us ﬁrst consider the limitations,
+and then the advantages. The minor limitation of our ap-
+proach is that, obviously, we cannot ﬁnd instances that are
+formed by disconnected regions in the image (see Fig. 1b-
+1c). However, despite this limitation, we demonstrate re-
+sults that exceed all published methods in terms of accu-
+racy. In the future, we foresee various ways to overcome
+this limitation, e.g. by reasoning globally about shape.
+We see the following major advantages of our approach.
+Firstly, all the four challenges for instance segmentation
+methods, listed above, are addressed in an elegant way: (i)
+the multi-cut formulation does not need a unique label for
+an instance; (ii) the number of instances arises naturally
+from the solution of the multi-cut; (iii) our formulation is
+on the pixel (superpixel) level; (iv) since we do not train a
+CNN for segmenting instances globally, our approach deals
+very well with instances of rare classes, as they do not need
+special treatment. Finally, our InstanceCut approach has
+another major advantage, from a practical perspective. We
+can employ any semantic segmentation method, as long
+as it provides pixel-wise log-probabilities for each class.
+Therefore, advances in this ﬁeld may directly translate to an
+improvement of our method. Also, semantic segmentation,
+here a Fully-Convolutional-Neural-Network (FCN) [52], is
+part of our new edge-detection approach. Again, advances
+in semantic segmentation may improve the performance of
+this component, as well.
+Our Contributions in short form are:
+• We propose a novel paradigm for instance-aware
+semantic segmentation, which has different pros and cons
+than existing approaches. In our approach, we only train
+classiﬁers for semantic segmentation and instance-edge
+detection, and not directly any classiﬁer for dealing with
+global properties of an instance, such as shape.
+• We propose a novel MultiCut formulation that reasons
+globally about the optimal partitioning of an image into
+instances.
+• We propose a new FCN-based architecture for
+• We validate experimentally that our approach achieves
+the best result, among all published methods, and performs
+particularly well for rare object classes.
+instance-aware edge detection.
+2. Related Work
+Proposal-based methods. This group of methods uses de-
+tection or a proposal generation mechanism as a subroutine
+in the instance-aware segmentation pipeline.
+Several recent methods decompose the instance-aware
+segmentation problem into a detection stage and a fore-
+ground/background segmentation stage [16, 22]. These
+methods propose an end-to-end training that incorporates
+all parts of the model. In addition, non-maximal suppres-
+sion (NMS) may be employed as a post-processing step.
+A very similar approach generates proposals using e.g.
+MCG [3] and then, in the second stage, a different network
+classiﬁes these proposals [13, 21, 15, 11].
+Several methods produce proposals for instance segmen-
+tations and combine them, based on learned scores [33,
+41, 42] or generate parts of instances and then combine
+them [14, 38].
+Although the proposal-based methods show state-
+of-the-art performance on important challenges, Pascal
+VOC2012 [18] and MSCOCO [37], they are limited by
+the quality of the used detector or proposal generator. Our
+method is, in turn, dependent on the quality of the used se-
+mantic segmentation. However, for the latter a considerable
+amount of research exists with high quality results.
+Proposal-free methods. Recently, a number of alternative
+techniques to proposal-based approaches have been sug-
+gested in the literature. These methods explore different de-
+compositions of instance-aware semantic segmentation fol-
+lowed by a post-processing step that assembles results.
+In [48] the authors propose a template matching scheme
+for instance-aware segmentation based on three modalities:
+predicted semantic segmentation, depth estimation, and per-
+pixel direction estimation with respect to the center of the
+corresponding instance. The approach requires depth data
+for training and does not perform well on highly occluded
+objects.
+Another work, which focuses on instance segmentation
+of cars [55, 54] employs a conditional random ﬁeld that rea-
+sons about instances using multiple overlapping outputs of
+an FCN. The latter predicts a ﬁxed number of instances and
+their order within the receptive ﬁeld of the FCN, i.e. for
+each pixel, the FCN predicts an ID of the corresponding in-
+stance or background label. However, in these methods the
+maximal number of instances per image must be ﬁxed in
+advance. A very large number may have a negative inﬂu-
+ence on the system performances. Therefore, this method
+may not be well-suited for the CityScapes dataset, where
+the number of instances varies considerably among images.
+In [50] the authors predict the bounding box of an in-
+stance for each pixel, based on instance-agnostic semantic
+segmentation. A post-processing step ﬁlters out the result-
+ing instances.
+Recurrent approaches produce instances one-by-one.
+In [43] an attention-based recurrent neural network is pre-
+sented. In [44] an LSTM-based [23] approach is proposed.
+The work [34] presents a proposal-free network that pro-
+duces an instance-agnostic semantic segmentation, number
+of instances for the image, and a per-pixel bounding box
+of the corresponding instance. The resulting instance seg-
+mentation is obtained by clustering. The method is highly
+sensitive to the right prediction of the number of instances.
+We also present a proposal-free method. However, ours
+is very different in paradigm. To infer instances, it combines
+semantic segmentation and object boundary detection via
+global reasoning.
+3. InstanceCut
+3.1. Overview of the proposed framework
+We begin with presenting a general pipeline of our new
+InstanceCut framework (see Fig. 2) and then describe each
+component in detail. The ﬁrst two blocks of the pipeline
+are processed independently: semantic segmentation and
+instance-aware edge detection operate directly on the input
+image. The third, image partitioning block, reasons about
+instance segmentation on the basis of the output provided
+by the two blocks above.
+More formally, the semantic segmentation block (Sec-
+tion 3.2) outputs a log-probability of a semantic class ai,l
+for each class label l ∈ L = {0, 1 . . . , L} and each pixel
+i of the input image. We call ai,l, per-pixel semantic class
+scores. Labels 1, . . . , L correspond to different semantic
+classes and 0 stands for background.
+Independently, the instance-aware edge detection (Sec-
+tion 3.3) outputs log-probabilities bi of an object boundary
+Figure 2: Our InstanceCut pipeline - Overview. Given
+an input image, two independent branches produce the per-
+pixel semantic class scores and per-pixel instance-aware
+edge scores. The edge scores are used to extract superpix-
+els. The ﬁnal image partitioning block merges the superpix-
+els into connected components with a class label assigned to
+each component. The resulting components correspond to
+object instances and background.
+for each pixel i. In other words, bi indicates how likely it
+is that pixel i touches an object boundary. We term bi as a
+per-pixel instance-aware edge score. Note that these scores
+are class-agnostic.
+Finally,
+the image partitioning block outputs the re-
+sulting instance segmentation, obtained using the seman-
+tic class scores and the instance-aware edge scores. We
+refer to Section 3.4 for a description of the corresponding
+optimization problem. To speed-up optimization, we re-
+duce the problem size by resorting to a superpixel image.
+For the superpixel extraction we utilize the well-known wa-
+tershed technique [49], which is run directly on the edge
+scores. This approach efﬁciently ensures that the extracted
+superpixel boundaries are aligned with boundaries of the
+instance-aware edge scores.
+3.2. Semantic Segmentation
+Recently proposed semantic segmentation frameworks
+are mainly based on the fully convolution network (FCN)
+architecture. Since the work [40], many new FCN ar-
+chitectures were proposed for this task [52, 20]. Some
+of the methods utilize a conditional random ﬁeld (CRF)
+model on top of an FCN [10, 36], or incorporate CRF-based
+mechanisms directly into a network architecture [39, 56,
+45]. Current state-of-the-art methods report around 78%
+mean Intersection-over-Union (IoU) for the CityScapes
+dataset [13] and about 82% for the PASCAL VOC2012
+challenge [18]. Due to the recent progress in this ﬁeld, one
+may say that with a sufﬁciently large dataset, with associ-
+ated dense ground truth annotation, an FCN is able to pre-
+dict semantic class for each pixel with high accuracy.
+In our experiments, we employ two publicly available
+pre-trained FCNs: Dilation10 [52] and LRR-4x [20]. These
+networks have been trained by the respective authors and
+we can also use them as provided, without any ﬁne-tuning.
+Note, that we also use the CNN-CRF frameworks [56, 10]
+with dense CRF [30], since dense CRF’s output can also be
+treated as the log-probability scores ai,l.
+Since our image partitioning framework works on the su-
+perpixel level we transform the pixel-wise semantic class
+scores ai,l to the superpixel-wise ones au,l (here u in-
+dexes the superpixels) by averaging the corresponding pix-
+els’ scores.
+3.3. Instance-Aware Edge Detection
+Let us ﬁrst review existing work, before we describe
+our approach. Edge detection (also know as boundary de-
+tection) is a very well studied problem in computer vi-
+sion. The classical results were obtained already back in
+the 80’s [9]. More recent methods are based on spectral
+clustering [47, 1, 3, 25]. These methods perform global
+inference on the whole image. An alternative approach
+suggests to treat the problem as a per-pixel classiﬁcation
+task [35, 17]. Recent advances in deep learning have made
+this class of methods especially efﬁcient, since they auto-
+matically obtain rich feature representation for classiﬁca-
+tion [19, 29, 46, 6, 7, 51, 8].
+The recent per-pixel classiﬁcation method [8] constructs
+features, which are based on an FCN trained for seman-
+tic segmentation on Pascal VOC 2012 [18]. The method
+produces state-of-the-art edge detection performance on the
+BSD500 dataset [2]. The features for each pixel are de-
+signed as a concatenation of intermediate FCN features,
+corresponding to that particular pixel. The logistic regres-
+sion trained on these features, followed by non-maximal
+suppression, outputs a per-pixel edge probability map. The
+paper suggests that the intermediate features of an FCN
+trained for semantic segmentation form a strong signal for
+solving the edge detection problem. Similarly constructed
+features also have been used successfully for other dense
+labelling problems [22].
+For datasets like BSDS500 [2] most works consider gen-
+eral edge detection problem, where annotated edges are
+class- and instance-agnostic contours.
+In our work the
+instance-aware edge detection outputs a probability for each
+pixel, whether it touches a boundary. This problem is
+more challenging than canonical edge detection, since it re-
+quires to reason about contours and semantics jointly, dis-
+tinguishing the true objects’ boundaries and other not rel-
+evant edges, e.g.
+inside the object or in the background.
+Below (see Fig. 3), we describe a new network architecture
+for this task that utilizes the idea of the intermediate FCN
+features concatenation.
+As a base for our network we use an FCN that is trained
+for semantic segmentation on the dataset that we want to use
+for object boundary prediction. In our experiments we use
+a pre-trained Dilation10 [52] model, however, our approach
+is not limited to this architecture and can utilize any other
+FCN-like architectures. We form a per-pixel feature rep-
+resentation by concatenating the intermediate feature maps
+of the semantic segmentation network. This is based on
+the following intuition: during inference, the semantic seg-
+mentation network is able to identify positions of transitions
+between semantic classes in the image. Therefore, its inter-
+mediate features are likely to contain a signal that helps to
+ﬁnd the borders between classes. We believe that the same
+features can be useful to determine boundaries between ob-
+jects.
+Commonly used approaches [8, 22] suggest upscaling
+feature maps that have a size which is smaller than the
+original image to get per-pixel representation. However, in
+our experiments such an approach produces thick and over-
+smooth edge scores. This behavior can be explained by the
+fact that the most informative feature maps have an 8 times
+smaller scale than the original image. Hence, instead of up-
+scaling, we downscale all feature maps to the size of the
+smallest map. Since the network was trained with rectiﬁed
+linear unit (ReLU) activations, the active neurons tends to
+output large values, therefore, we use max-pooling with a
+proper stride for the downscaling, see Fig. 3.
+The procedure outputs the downscaled feature maps (of
+a semantic segmentation FCN, see Fig. 3) that are concate-
+nated to get the downscaled per-pixel feature map. We uti-
+lize a 2-layer perceptron that takes this feature map as input
+and outputs log-probabilities for edges (smooth instance-
+aware edge map, see Fig. 3). The perceptron method is
+the same for all spatial positions, therefore, it can be repre-
+sented as two layers of 1 × 1 convolutions with the ReLU
+activation in between.
+In our experiments we have noticed that the FCN gives
+smooth edge scores. Therefore, we apply a context net-
+work [52] that reﬁnes the scores making them sharper. The
+Figure 3: Instance-aware edge detection block. The semantic segmentation FCN is the front-end part of the network [52]
+trained for semantic segmentation on the same dataset. Its intermediate feature maps are downsampled, according to the size
+of the smallest feature map, by a max-pooling operation with an appropriate stride. The concatenation of the downsampled
+maps is used as a feature representation for a per-pixel 2-layer perceptron. The output of the perceptron is reﬁned by a context
+network of Dilation10 [52] architecture.
+new architecture is an FCN, i.e. it can be applied to images
+of arbitrary size, it is differentiable and has a single loss at
+the end. Hence, straightforward end-to-end training can be
+applied for the new architecture. We upscale the resulting
+output map to match an input image size.
+Since the image partition framework, that comes next,
+operates on super-pixels, we need to transform the per-pixel
+edge scores bi to edge scores bu,v for each pair {u, v} of
+neighboring superpixels. We do this by averaging all scores
+of of those pixels that touch the border between u and v.
+In the following, we describe an efﬁcient implementation
+of the 2-layer perceptron and also discuss our training data
+for the boundary detection problem.
+Efﬁcient implementation.
+In our experiments, the input
+for the 2-layer perceptron contains about 13k features per
+pixel. Therefore, the ﬁrst layer of the perceptron consumes
+a lot of memory. It is, however, possible to avoid this by
+using a more efﬁcient implementation.
+Indeed, the ﬁrst
+layer of the perceptron is equivalent to the summation of
+outputs of multiple 1 × 1 convolutions, which are applied
+to each feature map independently. For example, conv 1
+is applied to the feature maps from the conv 1 x inter-
+mediate layer, conv 2 is applied to the feature maps from
+conv 2 x and its output is summed up with the output of
+conv 1, etc. This approach allows reducing the memory
+consumption, since the convolutions can be applied during
+evaluation of the front-end network.
+Training data. Although it is common for ground truth
+data that object boundaries lie in-between pixels, we will
+use in the following the notion that a boundary lies on a
+pixel. Namely, we will assume that a pixel i is labeled as
+a boundary if there is a neighboring pixel j, which is as-
+signed to a different object (or background). Given the size
+of modern images, this boundary extrapolation does not af-
+fect performance. As a ground truth for boundary detec-
+tion we use the boundaries of object instances presented in
+CityScapes [13].
+As mentioned in several previous works [51, 7], highly
+unbalanced ground truth (GT) data heavily harms the learn-
+ing progress. For example, in BSDS500 [2] less than 10%
+of pixels on average are labeled as edges. Our ground truth
+data is even more unbalanced: since we consider the object
+boundaries only, less than 1% of pixels are labeled as be-
+ing an edge. We employ two techniques to overcome this
+problem of training with unbalanced data: a balanced loss
+function [51, 24] and pruning of the ground truth data.
+The balanced loss function [51, 24] adds a coefﬁcient to
+the standard log-likelihood loss that decreases the inﬂuence
+of errors with respect to classes that have a lot of training
+data. That is, for each pixel i the balanced loss is deﬁned as
+where pedge = 1/(1 − e−bi ) is the probability of the pixel i
+to be labeled as an edge, yGT is the ground truth label for
+i (the label 1 corresponds to an edge), and α = N1/N0 is
+the balancing coefﬁcient. Here, N1 and N0 are numbers of
+pixels labeled, respectively, as 1 and 0 in the ground truth.
+Another way to decrease the effect of unbalanced GT
+data is to subsample the GT pixels, see e.g. [8]. Since we are
+interested in instance-aware edge detection and combine its
+output with our semantic segmentation framework, a wrong
+Figure 4: Ground truth examples for our instance-aware
+edge detector. Red indicates pixels that are labeled as edges,
+blue indicates background, i.e. no edge and white pixels are
+ignore.
+edge detection, which is far from the target objects (for ex-
+ample, in the sky) does not harm the overall performance
+of the InstanceCut framework. Hence, we consider a pixel
+to be labeled as background for the instance-aware edge de-
+tection if and only if it lies inside the target objects, or in
+an area close to it, see Fig. 4 for a few examples of the
+ground truth data for the CityScapes dataset [13]. In our
+experiments, only 6.8% of the pixels are labeled as object
+boundaries in the pruned ground truth data.
+of the instance-aware edge detection block and E ⊆ (cid:0)V
+Let V be the set of superpixels extracted from the output
+2
+be the set of neighboring superpixels, i.e., those having a
+common border.
+obtain:
+cluding background) for each superpixel u ∈ V .
+perpixels {u, v} ∈ E, for having a cutting edge.
+With the methods described in Sections 3.2 and 3.3 we
+• Log-probabilities αu,l of all semantic labels l ∈ L (in-
+• Log-probabilities bu,v for all pairs of neighbouring su-
+• Prior log-probabilities of having a boundary between
+any two (also equal) semantic classes βl,l(cid:48), for any two la-
+bels l, l(cid:48) ∈ L. In particular, the weight βl,l deﬁnes, how
+probable it is that two neighboring super-pixel have the
+same label l and belong to different instances. We set β0,0
+to −∞, assuming there are no boundaries between super-
+pixels labeled both as background.
+We want to assign a single label to each superpixel and
+have close-contour boundaries, such that if two neighbor-
+ing superpixels belong to different classes, there is always a
+boundary between them.
+Our problem formulation consists of two components:
+(i) a conditional random ﬁeld model [26] and (ii) a graph
+partition problem, known as MultiCut [12] or correlation
+clustering [4]. In a certain sense, these two problems are
+coupled together in our formulation. Therefore, we ﬁrst
+brieﬂy describe each of them separately and afterwards con-
+sider their joint formulation.
+Conditional Random Field (CRF). Let us, for now, as-
+sume that all βl,l = −∞, l ∈ L, i.e., there can be no bound-
+In this
+ary between superpixels assigned the same label.
+case our problem is reduced to the following famous for-
+mat: Let G = (V, E) be an undirected graph. A ﬁnite set
+of labels L is associated with each node. With each label
+l in each node v a vector αv,l is associated, which denotes
+the score of the label assigned to the node. Each pair of
+labels l, l(cid:48) in neighbouring nodes {u, v} is assigned a score
+cu,v,l,l(cid:48) :=
+The vector l ∈ L|V | with coordinates lu, u ∈ V being labels
+assigned to each node is called a labeling. The maximum a
+posteriori inference problem for the CRF is deﬁned above
+reads
+A solution to this problem is a usual (non-instance-aware)
+semantic segmentation, if we associate the graph nodes with
+superpixels and the graph edges will deﬁne their neighbor-
+hood.
+For the MultiCut formulation below, we will require a
+different representation of the problem (2), in a form of
+an integer quadratic problem. Consider binary variables
+xu,l ∈ {0, 1} for each node u ∈ V and label l ∈ L. The
+equality xu,l = 1 means that label l is assigned to the node
+u. The problem (2) now can be rewritten as follows:
+max
+The last constraint in (3) is added to guarantee that each
+node is assigned exactly one label. Although the prob-
+lem (3) is NP-hard in general, it can be efﬁciently (and of-
+ten exactly) solved for many practical instances appearing
+in computer vision, see [26] for an overview.
+MultiCut Problem. Let us now assume a different situa-
+tion, where all nodes have already got an assigned semantic
+label and all that we want is to partition each connected
+component (labeled with a single class) into connected re-
+gions corresponding to instances. Let us assume, for in-
+stance, that all superpixels of the component have a label
+l. This task has an elegant formulation as a MultiCut prob-
+lem [12]:
+Let G = (V, E) be an undirected graph, with the scores
+θu,v := bu,v + βl,l assigned to the graph edges. Let also
+˙∪ stand for a disjoint union of sets. The MultiCut problem
+(also known as correlation clustering) is to ﬁnd a partition-
+ing (Π1, . . . , Πk), Πi ⊆ V , V = ˙∪k
+i=1Πi of the graph ver-
+tices, such that the total score of edges connecting different
+components is maximized. The number k of components
+is not ﬁxed but is determined by the algorithm itself. Al-
+though the problem is NP-hard in general, there are efﬁcient
+approximate solvers for it, see e.g. [5, 27, 28].
+max
+(4)
+Here, the objective directly maximizes the total score of the
+edges and the inequality constraints basically force each cy-
+cle to have none or at least two cut edges. These cycle con-
+straints ensure that the set of cut edges actually deﬁnes a
+partitioning. Obviously, the cut edges correspond to bound-
+aries in our application.
+Our InstanceCut Problem. Let us combine both subprob-
+lems: We want to jointly infer both the semantic labels and
+the partitioning of each semantic segment, with each par-
+tition component deﬁning an object instance. To this end,
+consider our InstanceCut problem (5)-(8) below:
+max
+Objective (5) and inequalities (6)-(7) are obtained directly
+from merging problems (3) and (4). We also introduced the
+parameter w that balances the modalities. Additional con-
+straints (8) are required to guarantee that as soon as two
+neighboring nodes u and v are assigned different labels, the
+corresponding edge yu,v is cut and deﬁnes a part of an in-
+stance boundary. Two nodes u and u are assigned different
+labels if at most one of the variables xu,l, xv,l takes value
+1. In this case, the largest left-hand side of one of the in-
+equalities (8) is equal to 1 and therefore yu,v must be cut.
+The problem related to (5)-(8) was considered in [31] for
+foreground/background segmentation.
+Although the problem (5)-(8) is NP-hard and it contains
+a lot of hard constraints, there exists an efﬁcient approxi-
+mate solver for it [32], which we used in our experiments.
+Figure 5: The histograms shows distribution of number of
+instances per image for different datasets. For illustrative
+reasons we cut long tails of CityScapes and MS COCO. We
+use CityScapes dataset since it contains signiﬁcantly more
+instances per image.
+For solving the problem over 3000 nodes (superpixels) and
+9 labels (segment classes) it required less than a second on
+average.
+4. Experiments
+Dataset. There are three main datasets with full anno-
+tation for the instance-aware semantic segmentation prob-
+lem: PASCAL VOC2012 [18], MS COCO [37] and
+CityScapes [13]. We select the last one for our experimen-
+tal evaluation for several reasons: (i) CityScapes has very
+ﬁne annotation with precise boundaries for the annotated
+objects, whereas MS COCO has only coarse annotations,
+for some objects, that do not coincide with the true bound-
+aries. Since our method uses an edge detector, it is impor-
+tant to to have precise object boundaries for training. (ii)
+The median number of instances per image in CityScapes
+is 16, whereas PASCAL VOC has 2 and MS COCO has
+4. For this work a larger number is more interesting. The
+distribution of the number of instances per image for differ-
+ent datasets is shown in Fig. 5. (iii) Unlike other datasets,
+CityScapes’ annotation is dense, i.e. all foreground objects
+are labeled.
+The CityScape dataset has 5000 street-scene images
+recorded by car-mounted cameras: 2975 images for train-
+ing, 500 for validation and 1525 for testing. There are 8
+classes of objects that have an instance-level annotation in
+the dataset: person, rider, car, truck, bus, train, motorcycle,
+bicycle. All images have the size of 1024 × 2048 pixels.
+Training details. For the semantic segmentation block in
+our framework we test two different networks, which have
+publicly available trained models for CityScapes: Dila-
+tion10 [52] and LRR-4x [20]. The latter is trained using the
+additional coarsely annotated data, available in CityScapes.
+Importantly, CityScapes has 19 different semantic segmen-
+tation classes (and only 8 out of them are considered for in-
+stance segmentation) and both networks were trained to seg-
+ment all these classes. We do not retrain the networks and
+directly use the log-probabilities for the 8 semantic classes,
+which we require. For the background label we take the
+(a) Ground truth
+(c) InstanceCut prediction
+Figure 6: Qualitative results of InstanceCut framework. Left column contains input images with the highlighted ground truth
+instances. Middle column depicts per-pixel instance-aware edge log-probabilities and the last column shows the results of our
+approach. Note that in the last example the bus and a car in the middle are separated by a lamp-post, therefore, our method
+returns two instances for the objects.
+maximum over the log-probabilities of the remaining se-
+mantic classes.
+As an initial semantic segmentation network for the
+instance-aware edge detection block we use Dilation10 [52]
+pre-trained on the CityScapes. We exactly follow the train-
+ing procedure described in the original paper [52]. That is,
+we pre-train ﬁrst the front-end module with the 2-layer per-
+ceptron on top. Then we pre-train the context module of the
+network separately and, ﬁnally, train the whole system end-
+to end. All the stages are trained with the same parameters
+as in [52]. In our experiments the 2-layer perceptron has 16
+hidden neurons. On the validation set the trained detector
+achieves 97.2% AUC ROC.
+Parameters w (see (5)) and βl,l(cid:48), for all l, l(cid:48) ∈ L, in our
+InstanceCut formulation (5) are selected via 2-fold cross-
+validation. Instead of considering different βl,l(cid:48) for all pairs
+of labels, we group them into two classes: ’big’ and ’small’.
+All βl,l(cid:48), where either l or l(cid:48) corresponds to a (physically)
+big object, i.e., train, bus, or truck, are set to βbig. All other
+βl,l(cid:48) are set to βsmall. Therefore, our parameter space is
+only 3 dimensional and is determined by the parameters w,
+βsmall and βbig.
+Instance-level results - quantitative and qualitative. We
+evaluated our method using 4 metrics that are suggested
+by the CityScapes benchmark: AP, AP50%, AP100m and
+Table 1: CityScapes results for instance-aware semantic
+segmentation on the test set. The table contains only pub-
+lished results.1
+AP50m. We refer to the webpage of the benchmark for a
+detailed description.
+Quantitative results for the test set are provided in Ta-
+ble 2. We compare our approach to all published methods
+that have results for this dataset. Among them our method
+shows the best performance, despite its simplicity.
+1In the days, and hours, before the submission deadline other methods
+appeared in the table, which remain unpublished so far. For this reason we
+exclude them from the comparison.
+We refer to the supplementary material for the class-level
+results. A few qualitative results are shown in Fig. 6.
+5. Conclusion
+We have proposed an alternative paradigm for instance-
+aware semantic segmentation. The paradigm represents
+the instance segmentation problem by a combination of
+two modalities:
+instance-agnostic semantic segmentation
+and instance-aware boundaries. We have presented a new
+framework that utilize this paradigm. The modalities are
+produced by FCN networks. The standard FCN model is
+used for semantic segmentation, whereas a new architecture
+is proposed for object boundaries. The modalities are com-
+bined are combined by a novel MultiCut framework, which
+reasons globally about instances. The proposed framework
+achieves the best results amongst all published methods for
+the challenging CityScapes dataset[13].
+6. Acknowledgments
+We would like to thank Michael Figurnov for helpful dis-
+cussions. This project has received funding from the Euro-
+pean Research Council (ERC) under the European Unions
+Horizon 2020 research and innovation programme (grant
+agreement No 647769).
+[6] G. Bertasius, J. Shi, and L. Torresani. Deepedge: A multi-
+scale bifurcated deep network for top-down contour detec-
+tion. In Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition, pages 4380–4389, 2015. 4
+[7] G. Bertasius, J. Shi, and L. Torresani. High-for-low and low-
+for-high: Efﬁcient boundary detection from deep object fea-
+tures and its applications to high-level vision. In Proceedings
+of the IEEE International Conference on Computer Vision,
+pages 504–512, 2015. 4, 5
+Semantic seg-
+arXiv preprint
+[15] J. Dai, K. He, and J. Sun. Convolutional feature masking for
+In Proceedings of the
+joint object and stuff segmentation.
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion, pages 3992–4000, 2015. 2
+[22] B. Hariharan, P. Arbel´aez, R. Girshick, and J. Malik. Hyper-
+columns for object segmentation and ﬁne-grained localiza-
+tion. In Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition, pages 447–456, 2015. 2, 4
+[23] S. Hochreiter and J. Schmidhuber. Long short-term memory.
+[26] J. H. Kappes, B. Andres, F. A. Hamprecht, C. Schn¨orr,
+S. Nowozin, D. Batra, S. Kim, B. X. Kausler, T. Kr¨oger,
+J. Lellmann, N. Komodakis, B. Savchynskyy, and C. Rother.
+A comparative study of modern inference techniques for
+structured discrete energy minimization problems. Interna-
+tional Journal of Computer Vision, pages 1–30, 2015. 6
+[30] V. Koltun. Efﬁcient inference in fully connected crfs with
+gaussian edge potentials. Adv. Neural Inf. Process. Syst,
+2011. 4
+[38] S. Liu, X. Qi, J. Shi, H. Zhang, and J. Jia. Multi-scale patch
+aggregation (MPA) for simultaneous detection and segmen-
+tation. In Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition, 2016. 2
+[40] J. Long, E. Shelhamer, and T. Darrell. Fully convolutional
+networks for semantic segmentation. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion, pages 3431–3440, 2015. 4
+[46] W. Shen, X. Wang, Y. Wang, X. Bai, and Z. Zhang. Deep-
+contour: A deep convolutional feature learned by positive-
+In Proceedings of the
+sharing loss for contour detection.
+IEEE Conference on Computer Vision and Pattern Recog-
+nition, pages 3982–3991, 2015. 4
+[47] J. Shi and J. Malik. Normalized cuts and image segmenta-
+IEEE Transactions on pattern analysis and machine
+[49] L. Vincent and P. Soille. Watersheds in digital spaces: an
+IEEE
+efﬁcient algorithm based on immersion simulations.
+transactions on pattern analysis and machine intelligence,
+13(6):583–598, 1991. 3
+[55] Z. Zhang, A. G. Schwing, S. Fidler, and R. Urtasun. Monoc-
+ular object instance segmentation and depth ordering with
+cnns. In Proceedings of the IEEE International Conference
+on Computer Vision, pages 2614–2622, 2015. 3
+Supplementary materials
+In Table 2 we present a detailed performance compari-
+son. Fig. 7 contains the subset of difﬁcult scenes where In-
+stanceCut is able to predict most instances correctly. Fig. 8
+contains failure cases of InstanceCut. The main sources of
+failure are: small objects that are far away from the cam-
+era, groups of people that are very close to camera and have
+heavy mutual occlusions, and occluded instances that have
+several disconnected visible parts.
+Table 2: CityScapes results. Instance-aware semantic segmentation results on the test set of CityScapes, given for each
+semantic class. The table contains only published results.
+(a) Ground Truth
+(c) InstanceCut Prediction
+Figure 7: Curated difﬁcult scene, where InstanceCut performs well. The left column contains input images with ground truth
+instances highlighted. The middle column depicts per-pixel instance-aware edge log-probabilities and the last column shows
+the results of our approach.
+(a) Ground Truth
+(c) InstanceCut Prediction
+Figure 8: Failure cases. The left column contains input images with ground truth instances highlighted. The middle column
+depicts per-pixel instance-aware edge log-probabilities and the last column shows the results of our approach.

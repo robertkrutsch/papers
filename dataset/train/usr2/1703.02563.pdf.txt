@@ -1,0 +1,1032 @@
+Optical Flow Fields: Dense Correspondence
+Fields for Highly Accurate Large Displacement
+Optical Flow Estimation
+Christian Bailer, Bertram Taetz and Didier Stricker
+Abstract—Modern large displacement optical ﬂow algorithms usually use an initialization by either sparse descriptor matching
+techniques or dense approximate nearest neighbor ﬁelds. While the latter have the advantage of being dense, they have the major
+disadvantage of being very outlier-prone as they are not designed to ﬁnd the optical ﬂow, but the visually most similar correspondence.
+In this article we present a dense correspondence ﬁeld approach that is much less outlier-prone and thus much better suited for optical
+ﬂow estimation than approximate nearest neighbor ﬁelds. Our approach does not require explicit regularization, smoothing (like median
+ﬁltering) or a new data term. Instead we solely rely on patch matching techniques and a novel multi-scale matching strategy. We also
+present enhancements for outlier ﬁltering. We show that our approach is better suited for large displacement optical ﬂow estimation
+than modern descriptor matching techniques. We do so by initializing EpicFlow with our approach instead of their originally used
+state-of-the-art descriptor matching technique. We signiﬁcantly outperform the original EpicFlow on MPI-Sintel, KITTI 2012, KITTI 2015
+and Middlebury. In this extended article of our former conference publication we further improve our approach in matching accuracy as
+well as runtime and present more experiments and insights.
+Index Terms—optical ﬂow, dense matching, correspondence ﬁelds.
+!
+1 INTRODUCTION
+F INDING the correct dense optical ﬂow between images
+or video frames is a challenging problem. While the
+visual similarity between two image regions is the most
+important clue for ﬁnding the optical ﬂow, it is often unre-
+liable due to illumination changes, deformations, repetitive
+patterns, low texture, occlusions or blur. Hence, basically
+all dense optical ﬂow methods add prior knowledge about
+the properties of the ﬂow, like local smoothness assump-
+tions [1], structure and motion adaptive assumptions [2],
+the assumption that motion discontinuities are more likely
+at image edges [3], or the assumption that the optical ﬂow
+can be approximated by a few motion patterns [4]. The
+most popular of these assumptions is the local smoothness
+assumption. It is usually incorporated into a joint energy
+based regularization that rates data consistency together
+with the smoothness in a variational setting of the ﬂow [1].
+One major drawback of this setting is that fast minimization
+techniques usually rely on local linearization of the data
+term and thus can adapt the motion ﬁeld only very locally.
+Hence, these methods have to use image pyramids to deal
+with fast motions (large displacements) [5]. In practice, this
+fails in cases where the determined motion on a coarser scale
+is not very close to the correct motion of a ﬁner scale.
+In contrast, for purely data based techniques like ap-
+proximate nearest neighbor ﬁelds [6] (ANNF) and sparse
+descriptor matches [7] there are fast approaches that can
+efﬁciently perform a global search for the best match on the
+• All authors are with the Department of Augmented Vision, German
+Research Center of Artiﬁcial Intelligence, 67663 Kaiserslautern, Germany
+E-mail: see http://av.dfki.de/members/
+• Bertram Taetz and Didier Stricker are also with the University of Kaiser-
+slautern.
+(c) Our outlier ﬁltered Flow Field
+(d) Ground truth
+Fig. 1. Comparison of state-of-the-art approximate nearest neighbor
+ﬁelds (a) and Flow Fields (b) with the same data term. a) and b) are
+shown with ground truth occlusion map (black pixels). c) is after outlier
+ﬁltering, occluded regions are successfully ﬁltered. It can be used as
+initialization for an optical ﬂow method.
+full image resolution. However, as there is no regularization,
+(approximate) nearest neighbor ﬁelds (NNF) usually con-
+tain many outliers that are difﬁcult to identify. Furthermore,
+even if outliers can be identiﬁed they leave gaps in the
+motion ﬁeld that must be ﬁlled. Sparse descriptor matches
+usually contain fewer outliers as matches are only deter-
+mined for carefully selected points with high conﬁdence.
+However, due to their sparsity the gaps between matches
+are usually even larger than in outlier ﬁltered ANNF. Gaps
+are problematic, since a motion for which no match is found
+cannot be considered. Despite these difﬁculties, ANNF and
+sparse descriptor matches gained a lot of popularity as
+initial step of large displacement optical ﬂow algorithms.
+Nowadays, most top-performing methods on challenging
+datasets like MPI-Sintel [8] rely on such techniques.
+However, although most pixel-dense approaches use
+powerful patch matching [9]
+techniques like propaga-
+tion and random search, conventional patch matching ap-
+proaches are tailored to ﬁnd the ANNF. This is suboptimal
+for optical ﬂow estimation. The intention behind ANNF is
+to ﬁnd the visually closest match (NNF), which is often
+not identical to the optical ﬂow. An important difference
+is that NNF are known to be very noisy regarding the offset
+of neighboring pixels, while optical ﬂow is usually locally
+smooth and occasionally abrupt (see Figure 1).
+In this article we show that it is possible to create
+dense correspondence ﬁelds that contain signiﬁcantly fewer
+outliers than ANNF regarding optical ﬂow estimation – not
+because of explicit regularization, smoothing (like median
+ﬁltering) or a different data term, but by using patch match-
+ing techniques in a novel way that is more favorable for
+optical ﬂow estimation and by combining it with our novel
+multi-scale matching strategy. We call our correspondence
+ﬁelds Optical Flow Fields (short: Flow Fields) as they are
+tailored for optical ﬂow estimation, while they are at the
+same time dense and purely data term based like ANNF.
+Our main contributions are:
+• A novel multi-scale correspondence ﬁeld matching
+strategy that features powerful non-locality in the
+image space (see Figure 7 a)), but locality in the
+ﬂow space (for smoothness) and can utilize scales
+as effective outlier sieves. It allows to obtain better
+results with scales than without, even for tiny objects
+and other details.
+• We extend the common forward backward consis-
+tency check by a novel two way consistency check as
+well as region and density based outlier ﬁltering.
+• We show the effectiveness of our approach by clearly
+outperforming ANNF and by obtaining competi-
+tive results on MPI-Sintel [8], KITTI 2012 [10] and
+2015 [11].
+Several experiments to analyze our approach.
+approach, called EpicFlow. They found that Deep Matching
+clearly outperforms ANNF. We will use their approach for
+optical ﬂow estimation and show that this is not the case
+for our approach. Deep Matching is a semi-dense descriptor
+matching technique tailored for optical ﬂow that does not
+use patch matching techniques like our approach.
+An important milestone regarding fast ANNF estimation
+was PatchMatch [9]. Nowadays, there are even faster ANNF
+approaches [6], [22]. There are also approaches that try to
+obtain correspondence ﬁelds tailored to optical ﬂow. Lu et
+al. [23] used superpixels to gain edge aware correspondence
+ﬁelds. Bao et al. [24] used an edge aware bilateral data
+term instead. While the edge aware data term helps them to
+obtain good results – especially at motion boundaries, their
+approach is still based on the ANNF strategy to determine
+correspondences, although it is unfavorable for optical ﬂow.
+HaCohen et al. [25] presented a multi-scale correspondence
+ﬁeld approach for image enhancement. While it does well
+in removing outliers, it also removes inliers that are not
+supported by a large neighborhood (in each scale). Such
+inliers are especially important for optical ﬂow as they
+cannot be determined by the classical coarse to ﬁne strategy.
+Our approach cannot only preserve such isolated inliers, but
+can also spread them if needed (Figure 7 a)).
+A technique that shares the idea of preferring locality
+(to avoid outliers) with our approach is region growing in
+3D reconstruction [26], [27]. It is usually computationally
+expensive. A faster GPU parallelizable alternative for region
+growing based on PatchMatch [9] was presented in our
+previous work [28]. It shares some ideas with our basic
+approach in Section 3.1, but was not designed for optical
+ﬂow estimation and lacks many important aspects of our
+approach in this paper.
+Recently, Hu et al. [29] improved the runtime of our
+multi-scale matching strategy [12] by not performing bi-
+linear interpolation and by not considering every pixel in
+propagation. This improves runtime speed at the cost of
+accuracy. Furthermore, we recently created a CNN based
+data term [30] for our Flow Fields approach.
+In this extended article we also present improved ver-
+sions of our conference approach [12], that are much more
+accurate (Flow Fields+) or more accurate and at the same
+time much faster (Flow Fields+ Fast) than our conference ver-
+sion. We also present additional experiments and insights.
+2 RELATED WORK
+Dense optical ﬂow research started more than 30 years
+ago with the work of Horn and Schunck [1]. We refer to
+publications like [13], [14], [15] for a detailed overview of
+optical ﬂow methods and the general principles behind it.
+One of the ﬁrst works that integrated sparse descriptor
+matching for improved large displacement performance
+was Brox and Malik [16]. Since then, several works followed
+the idea of using (sparse) descriptors [3], [17], [18], [19], [20],
+while few works used dense ANNF instead [4], [21]. Chen et
+al. [4] showed that remarkable results can be achieved on the
+Middlebury evaluation portal by extracting the dominant
+motion patterns from ANNF. Revaud et al. [3] compared
+ANNF to Deep Matching [18] for the initialization of their
+3 OUR APPROACH
+In this section we detail our Flow Fields approach, our
+extended outlier ﬁlter and the data terms used in the tests
+of our paper. The idea of our approach is described in
+two steps. First we introduce a basic (single-scale) Flow
+Fields approach in Section 3.1. Then we build our full multi-
+scale Flow Fields approach on top of it in Section 3.2. This
+approach we also call conference approach, as it was already
+presented in the conference version of this article [12].
+In addition, we present in this extended article improved
+versions of our approach called Flow Fields+ in Section 3.3
+and a faster version of Flow Fields+ called Flow Fields+ Fast
+in Section 3.4.
+Given two images I1, I2 ⊂ R2 we use the following
+notation: Pr(pi) is an image patch with patch radius r
+centered at a pixel position pi = (x, y)i ∈ Ii i = 1, 2. The
+total size of our rectangular patch is (2r + 1) × (2r + 1)
+pixels. Our goal is to determine the optical ﬂow ﬁeld of
+I1 with respect to I2 i.e. the displacement ﬁeld for all pixels
+p1 ∈ I1, denoted by F (p1) = M (p1)−p1 ∈ R2 for each pixel
+Fig. 3. a) Example for the ability of propagation to propagate into
+different directions within a 90 degree angle. Gray pixels reject the ﬂow
+of the green seed pixel. In practice each pixel is a seed. b) Pixel positions
+of P1 (green), P 2
+1 (red). The central pixel is in black. c) Our
+propagation directions.
+as their surrounding does not form a smooth surface. The
+propagation of our initial ﬂow values works similar to the
+propagation step in the PatchMatch approach [9] i.e. ﬂow
+values are propagated from position (x, y − 1)1 and (x −
+1, y)1 to position p1 = (x, y)1 as follows:
+G1 are the considered ﬂows for our ﬁrst propagation step. It
+is important to process positions (x, y − 1)1 and (x − 1, y)1
+with Equation 2 before position (x, y)1 is processed. This
+allows the propagation approach to propagate into arbi-
+trary directions within a 90 degree angle (see Figure 3
+a)). As optical ﬂow varies between neighboring pixels, but
+propagation can only propagate existing ﬂow values our
+next step is a random search step. Here, we modify the
+ﬂow of each pixel p1 by a random uniformly distributed
+offset Ornd of at most R pixels. If the matching error E
+decreases we replace the ﬂow F by the new ﬂow F + Ornd.
+Ornd is a subpixel accurate offset which leads to subpixel
+accurate positions M (p1). The pixel colors of M (p1) and
+Pr(M (p1)) are determined by bilinear interpolation. Early
+subpixel accuracy not only improves overall accuracy, but
+also helps to avoid outliers as subpixel accurate matches
+have a smaller matching error.
+In total we perform alternately 4 propagation and 3
+random search steps (all with the same R) as shown in
+Figure 2. While the ﬁrst propagation step is performed to
+the right and bottom, the subsequent three propagation
+steps are performed into the directions shown in Figure 3 c).
+Many approaches that perform propagation (e.g. [6]) do not
+consider different propagation directions. Even the original
+Fig. 4. Spreading of seeds. X axis is image position, y axis optical
+ﬂow displacement. From a seed, spreading (propagation + random
+search) can only distribute the ﬂow in a narrow range (y axis). This
+allows inaccurate matches but no real resistant outliers with large EPE if
+started form a correct seed. An exception are motion discontinuities.
+Here, pixels might be labeled to the wrong side which can result in
+resistant outliers with large EPE. However, like for false seeds these
+critical areas (yellow) are usually small as propagation fails here due to
+unsmoothness.
+Fig. 2. The pipeline of our Flow Fields approach. For the basic approach
+we only consider the full resolution.
+p1. M (p1) is the corresponding matching position p2 ∈ I2
+for a position p1 ∈ I1. All parameters mentioned below are
+assigned in Section 4.
+3.1 Basic Flow Fields
+The ﬁrst step of our basic approach is similar to the kd-tree
+based initialization step of the ANNF approach of He and
+Sun [6]. We do not use any other step of [6] as we have
+found them to be harmful for optical ﬂow estimation, since
+they introduce resistant outliers, whose matching errors are
+below those of the ground truth. Once introduced, a purely
+data based approach without regularization cannot remove
+them anymore. Hence, the secret is to avoid ﬁnding them.
+ANNF approaches try to reproduce the NNF that contains
+all resistant outliers, but due to their approximate nature
+they fail doing so – which is beneﬁcial for optical ﬂow
+estimation. In our (basic) approach we want to reinforce this
+property even more to ﬁnd even less resistant outliers, while
+still keeping track of inliers.
+Our approach, outlined in Figure 2, works as fol-
+lows: First we calculate the Walsh-Hadamard Transform
+(WHT) [31] for all patches Pr(p2) centered at all pixel
+positions p2 in image I2 similar to [6].1 In contrast to them
+we use the ﬁrst 9 bases for all three color channels in the
+CIELab color space. The resulting 27 dimensional vectors for
+each pixel are then sorted into a kd-tree with leaf size l. We
+also split the tree in the dimension of the maximal spread
+by the median value. After building the kd-tree we create
+WHT vectors for all patches Pr(p1) at all pixel positions in
+image I1 as well and search the corresponding leaf within
+the kd-tree (where it would belong to if we would add it to
+the tree). All l entries L in the leaf found by the vector of
+the patch Pr(p1) are considered as candidates for the initial
+ﬂow ﬁeld F (p1). To determine which of them is the best we
+calculate their matching errors Ed with a robust data term
+d (see Section 3.5), and only keep the candidate with the
+lowest matching error in the initial Flow Field, i.e.
+This is similar to reranking in [6]. We call points in the initial
+ﬂow ﬁeld arising directly from the kd-tree seeds. Larger l
+increase the probability that both correct seeds and resistant
+outliers are found. However, if both are found at a position
+the resistant outlier prevails. Thus, it is advisable to keep
+l small and to utilize the local smoothness of optical ﬂow
+to propagate rare correct seeds in the initial ﬂow ﬁeld into
+many surrounding pixels – outliers usually fail in this regard
+1. For WHTs patches must be split in the middle. We found that the
+matching quality does not suffer from splitting uneven patches with
+size (2r + 1) into patches of size r and r + 1.
+Fig. 6. Outlier sieve effect. Outliers disappear through propagations on
+different scales. For visualization purposes the valid gray pixels of the
+scales in Figure 5 are enlarged to ﬁll the whole pixel space. Scales for
+the numbers are: 1: n=8 after KD-tree initialization, 2:n=8 after propaga-
+tion, 3:n=4 after propagation, 4:n=1 after propagation (we skipped n=2).
+The full images can be found in our supplementary material.
+the full resolution, which prevents upsampling errors. Our
+low-pass ﬁltering approach to obtain I n
+is described in
+i
+Section 3.6.
+We always start with n = 2k. Our full Flow Fields
+approach ﬁrst initializes only each nth pixels pn
+1 = (xn, yn)1
+with xn mod n = 0 and yn mod n = 0 (see Figure 5).
+Initialization is performed similar to the basic approach:
+Note that the kd-tree samples L are identical to those of the
+basic approach. We still use non-subsampled patches Pr(pi)
+for the WHT vectors for an accurate initialization.
+After initialization we perform propagation and random
+search similar to the basic approach. Except that we only
+1 i.e. (xn − n, yn)1, (xn, yn −
+propagate between points pn
+n)1 → (xn, yn)1 etc. (see Figure 5) and that we use Rn = R∗
+n as maximum random search distance. After determining
+1 ), m = 2k−1 in
+F (pn
+the same way using patches P m. Hereby, the samples F (pn
+1 )
+are used as seeds instead of kd-tree samples. Positions pm
+1
+that are not part of pn
+1 receive an initial ﬂow value in the ﬁrst
+propagation step of the scale k−1. This approach is repeated
+up to the full resolution F (p1
+1) = F (p1) (see Figure 2 and 5).
+As demonstrated in Figure 4 our spreading (propagation
++ random search) is usually too local to introduce new
+(resistant) outliers. On the other hand, spreading of ﬁner
+scales is likely to remove outliers persisting in coarser
+scales, since resistant outliers are often not resistant on all
+scales. This is due to the fact that matching error mini-
+mas are different on different scales. Formally: If Gn =
+arg minp2 Ed(P n
+r (p2)) is the global minimum match
+at scale n then we cannot imply that it is the minimum for
+(cid:54)=⇒ Gn2 = p2. As
+a different scale as well i.e. Gn1 = p2
+a result, scales serve as a kind of outlier sieve. The outlier
+sieve effect can be seen in Figure 6.
+In contrast to ordinary multi-scale approaches, our ap-
+proach is non-local in the image space. Figure 7 a) demon-
+strates how powerful this non-locality is. The ﬂow ﬁeld is
+only initialized by two ﬂow values with a ﬂow offset of
+52 pixels to each other (Figure 7 b)). This is more than the
+random search step of all scales together can traverse. Thus,
+the orange ﬂow is a propagation barrier for the violet ﬂow
+(Like gray pixels in Figure 3 a)). Anyhow, our approach
+manages to distribute the violet ﬂow and similar ﬂows
+determined by random search throughout the whole image.
+We originally performed the experiment to prove that the
+Fig. 5. Illustration of our multi-scale Flow Fields approach. Flow offsets
+saved in pixels are propagated in all arrow directions.
+PatchMatch approach only considers the ﬁrst two directions.
+While these already include all 4 main directions, we have
+to consider that propagation actually can propagate into all
+directions within a quadrant (see Figure 3 a)) and that there
+are 4 quadrants in the full 360 degree range.
+Extensive propagation with random search (which we
+call spreading) is important to distribute rare correct seeds
+into the whole Flow Field. The locality of spreading (with
+small R) prevents the ﬂow ﬁeld from introducing new
+outliers not existing in the initial ﬂow ﬁeld (see Figure 4).
+3.2 Flow Fields
+Our basic Flow Fields still contain many resistant outliers
+arising from kd-tree initialization. We can further reduce
+their amount (and the amount of initial inliers) by not de-
+termining an initial ﬂow value for each pixel. This helps as
+inliers usually propagate much further than outliers (optical
+ﬂow is smooth, outliers are usually not). However, to cover
+the larger ﬂow variations between fewer inliers (that are
+further apart from each other) the random search distance
+R must be increased, which raises the danger of adding
+close by resistant outliers. A way to avoid this is to increase
+the patch inﬂuence area as well, either by raising r or by
+determining the optical ﬂow on a downsampled image.
+This helps for instance in the presence of repetitive patterns
+or poorly textured regions, but creates new failure cases
+e.g. close to motion discontinuities and for small objects.
+Furthermore, a larger inﬂuence area and larger R leads to
+less accurate matches.
+Our solution (outlined in Figure 5) avoids most of the
+disadvantages of large inﬂuence areas while being even
+more robust: First we deﬁne that P n
+r (pi) is a subsampled
+patch at pixel position pi with patch radius r∗n that consists
+of only each nth pixel within its radius including the center
+pixel, i.e. (see Figure 3 b) for an illustration):
+The pixel colors for P n
+r (pi) are not determined from image
+Ii, but from a low-pass ﬁltered version of Ii that we call
+I n
+i , i.e. we use scale-spaces [32]. While scale-spaces are
+similar to using image pyramids and using Pr on a n
+times downsampled image, scale-spaces have the advan-
+tage that we can perform high-quality interpolation at low
+computational cost up to pixel accuracy in the full image
+resolution. Furthermore, pi is an actual pixel position on
+Fig. 7. a) Flow ﬁeld obtained with k = 3 with b) as only initialization
+(black pixels in b) are set to inﬁnity). It shows the powerfulness of our
+multi-scale propagation. c) Like a) but with kd-tree initialization. The
+3 marked details are preserved due to their presence in the coarsest
+scale d). e) like c) but without scales (basic approach). Details are not
+preserved. f) ground truth. As correspondence estimation is impossible
+in occluded areas and as orientation we blacked such areas out.
+ﬂow can be propagated into the arms starting from the body,
+but our approach even can obtain the ﬂow for nearly the
+whole image with such poor initialization.
+Figure 7 c) shows that we can even ﬁnd tiny objects with
+our multi-scale approach: The 3 marked objects are well
+persevered in c) due to their presence in the coarse scale d).
+Remarkably, these objects are only preserved when using
+multi-scale matching. Our basic approach without scale-
+spaces only preserves parts of the upper object (a butterﬂy)
+riddled with outliers, although its seeds are a superset of the
+seed of the multi-scale approach – but it fails in avoiding
+resistant outliers. Our multi-scale approach preserves tiny
+objects due to unscaled WHTs (initialization) and since the
+image gradients around tiny objects create local minima in
+Ed, even for huge patches P n
+r . This is sufﬁcient as lower
+minima (resistant outliers) are successfully avoided by our
+search strategy. Our visual tests showed that our approach
+with k = 3 in general preserves tiny objects and other details
+better than our basic approach. With too large k (> 3) tiny
+objects are, due to lack of seeds, not that well preserved.
+Our original approach uses 4 propagation iterations con-
+taining 3 random search iterations with a ﬁxed random
+search distance R. In our improved approach ﬁrst presented
+in this article, we instead use two different random search
+distances. First we perform 4 propagation iterations (con-
+taining 3 random search iterations) with R+ = 2R and
+then 8 propagation iterations (containing 7 random search
+iterations) with R. For the different scales this means that we
+n = R+∗n and Rn = R∗n. Our four search directions
+use R+
+are hereby repeated every 4 propagation iterations. The
+larger R+ helps to further distribute sparse matches in
+difﬁcult situations like large ﬂow variations with only few
+correct seeds, while the smaller R is required for accurate
+convergence. Large random search distances increase the
+risk of ﬁnding resistant outliers, but we found that the
+positive effect prevails if R/R+ is chosen reasonably.
+Scales and sub-scales used for our improved approach Flow Fields+.
+3.3.1 Sub-Scales
+Besides different random search distances our improved
+approach also uses sub-scales. While our ordinary scales
+are limited to scaling factors of n ∈ {2k, k ∈ N}, sub-
+scales n∗ ∈ N can additionally contain values that are
+not a multiple of two. In our improved approach we use
+sub-scales for the patch size P n∗
+and
+n∗ = R+ ∗ n∗ and Rn∗ = R ∗ n∗,
+random search distances R+
+but not for propagation and random search positions of the
+scales (i.e. everything shown in Figure 2). Here we only use
+valid n. Table 1 shows the n and n∗ used for the different
+scales in our tests of our improved approach with sub-scales.
+3.4 Flow Fields+ Fast
+The Flow Fields+ Fast approach aims to be much faster and
+still more accurate than the original Flow Fields approach.
+Compared to Flow Fields+ we omit sub-scales. Furthermore,
+we use only 4 propagations with R, similar to the original
+Flow Fields approach for the ﬁnest and thus computationally
+most expensive scale. Coarser scales are still executed with
+4 × R+ and 8 × R like in the Flow Fields+ approach.
+3.4.1 Flow Fields+ Fast x2
+Flow Fields+ Fast x2 is an even faster version that does not
+execute the ﬁnest scale at all and only uses 4 propagations
+with R on the 2. ﬁnest scale. Starting from the 3. ﬁnest scale
+this approach also uses 4 × R+ and 8 × R. Furthermore, we
+only add one pixel in a 2x2 region to the KD-Tree as KD-
+Tree creation would otherwise be a signiﬁcant time factor.
+As the approach does not process the ﬁnest scale, it creates
+only one match in each 2x2 region. This is not an issue since
+we sparsify matches before computing the ﬁnal optical ﬂow
+(See Section 3.8).
+3.5 Data Terms
+In this article we consider the following data terms:
+1) Census transform [33]. It is computationally cheap,
+illumination robust and to some extend edge aware.
+We use the sum of census transform errors over all
+color channels in the CIELab color space for Ed.
+2) Patch based SIFT ﬂow [34] (for experiments with
+our original conference approach) and Pixel-wise
+SIFT features [7] (for experiments with our im-
+proved approaches). Reasoning for the decision to
+switch to SIFT is provided in Section 3.6.
+a) Pixel-wise SIFT features: the error between
+SIFT features is determined with the L2
+distance. Due to the large feature vector of
+S = 128 dimensions only r = 0 is affordable
+in our approach (r = 1 has already 9 times
+more operations).
+3.7 Outlier Filtering
+A common approach of outlier ﬁltering is to perform a
+forward backward consistency check. We found that the
+robustness of the consistency check can be further improved
+by calculating the backward ﬂow two instead of only one
+time. This helps as our approach is randomized. Hence, two
+backward ﬂows with different pseudo-random numbers are
+not identical which is why outliers often diverge into dif-
+ferent directions. This property can be further reinforced by
+using different patch radii r and r2 for both backward ﬂows.
+We delete a pixel if it is not consistent to both backward
+ﬂows i.e.
+is not fulﬁlled for one of the two backward ﬂows F b
+j . For a
+3-way check an additional forward ﬂow could be added, but
+for a 2-way check an extra backward ﬂow performs better
+(see supplementary material for an explanation).
+After the consistency check many of the remaining out-
+liers form small regions that were originally connected to
+removed outliers. Thus, we remove these regions as follows:
+First, we segment the partly outlier ﬁltered ﬂow ﬁeld into
+regions. Neighboring pixels belong to the same region if the
+difference between their ﬂow is below 3 pixels.2 Then, we
+test for regions with less than s pixels if it is possible for
+that region to add at least one outlier that was removed by
+the consistency check with the same rule. If this is possible,
+we found a small region that was originally connected to an
+outlier and we remove all points in that region.
+3.8 Sparsiﬁcation and Dense Optical Flow
+To ﬁll the gaps created by outlier ﬁltering we use the edge
+preserving interpolation approach proposed by Revaud et
+al. [3] (EpicFlow). We found that EpicFlow does not work
+very well with too dense samples. Thus, we select only one
+sample in each q×q region in the outlier ﬁltered ﬂow ﬁeld if
+the region still contains at least e samples. q is set to 3, except
+for Flow Fields+ Fast x2 where q = 3 does not ﬁt (a sampling
+size of 2x2 cannot be assigned to 3x3 patches). Here, we use
+q = 4 (and we also test q = 8 as a faster alternative). This is
+our last consistency check. We found that even after region
+based ﬁltering most remaining outliers are in sparse regions
+where most ﬂow values were removed. The sample that is
+selected is the sample for which the sum of both forward
+backward consistency check errors is the smallest.
+4 EVALUATION
+We evaluate our approach on 4 optical ﬂow datasets:
+• MPI-Sintel [8]: It is based on an animated movie and
+contains many large motions up to 400 pixels per
+frame. The test set consists of two versions: clean
+and ﬁnal. Clean contains realistic illuminations and
+reﬂections. Final additionally adds rendering effects
+like motion, defocus blurs and atmospheric effects.
+• Middlebury [13]: It was created for accurate optical
+ﬂow estimation with relatively small displacements.
+2. Only the ﬂow differences between neighboring pixels count. The
+ﬂow values of a region can vary by an arbitrary offset.
+Fig. 8. Besides direct Fourier based low-pass ﬁlling an image based
+low-pass can be calculated by successive down and upsampling. If
+feature extraction is used, there are two options: features can either
+be calculated before or after downsampling. After feature extraction
+up/downsampling is performed not on the image but on the feature map.
+b) Patch based SIFT ﬂow: the colors are deter-
+mined by ﬁrst calculating the 128 dimen-
+sional SIFT vector for each pixel and then
+reducing it by PCA to S << 128 dimensions.
+The error between Sift Flow vectors is also
+determined by the L2 distance.
+3) Our Convolutional Neural Network based data
+term presented in our very recent paper [30]. Results
+of the data term were recently reported in our CNN
+paper and are not further detailed in this article, but
+for completeness we also report these results here.
+3.6 Features, Low-Pass Filtering and Border Condition
+To perform low-pass ﬁltering we consider the approaches
+shown in Figure 8. Downsampling is performed by down-
+sampling Ii by a factor of n with area based downsam-
+pling. For upsampling we use Lanczos interpolation [35]
+. While ordinary low-pass ﬁltering (e.g. for the Census
+Transform data term) just requires up and downsampling,
+feature based data terms additionally require to calculate the
+features. This can either be performed before (F1) or after
+downsampling (F2). Which setup performs better seems
+to depend on the data term. While in our tests SIFT ﬂow
+performs better with F1, SIFT performs better with F2. As
+SIFT with F2 outperforms SIFT ﬂow with F1, F2 allows us
+to drop the slower and more complicated SIFT ﬂow data
+term in favor of SIFT features.
+As feature creation for every pixel and upsampling of
+large feature vectors is time consuming, it is unsuitable for
+our fast approaches. Thus, we also introduce a fast version
+of F2 which we call F2F. Here we use bilinear interpolation
+for upsampling instead of Lanczos. Furthermore, we only
+calculate one feature vector for each 2x2 pixel region on the
+ﬁnest scale. Pixels for which no feature vector is calculated
+are linearly interpolated from neighboring pixels. For all
+other scales we still calculate feature vectors for all pixels.
+3.6.1 Border Condition
+Patch matching for border pixels requires matching pixels
+outside the image area. To do so we use a replicative bound-
+ary condition. This means that pixels outside the image area
+obtain the pixel color of the visible pixel closest to them.
+Fig. 9. The inﬂuence of different parameters of our approach. We plot the main measures for each dataset.
+Most approaches can obtain an endpoint error (EPE)
+in the subpixel range.
+• KITTI 2012 [10]: It was created from a platform on a
+driving car and contains images of city streets. The
+motions can become large when the car is driving.
+The remainder of this section is structured as follows: In
+Section 4.1 we detail parameter selection. In Section 4.2 – 4.5
+we analyze our approach with various kinds of experiments.
+In Section 4.6 we evaluate our different approaches on the
+MPI-Sintel and KITTI 2015 training set, while we evaluate
+our best approach on the test sets of all four major evalua-
+tion portals in Section 4.7. Finally, in Section 4.8 we present
+visual results of our approach.
+4.1 Parameter Selection
+Here we detail parameter selection for our approach. In our
+experiments we use l = 8 equivalent to [6] and k = 3 as
+it showed to perform best for the tested optical ﬂow bench-
+marks. In general, visual tests with large images showed
+that kgood ≈ log4(N umImageP ixels/6000) seems to be a
+reasonable approximation for a good k. Note that this is only
+based on few visual observations and might vary depending
+on other parameters and the dataset.
+We set R to R = 1 for experiments on MPI-Sintel and
+R = 1.5 for experiments on KITTI. These values are based
+on the experiments in Figure 9 right. The results of our
+conference approach Flow Fields are created with a ﬁxed
+R = 1. The parameters , e, s are tuned coherently for our
+results in Section 4.7 on the corresponding training set with
+ ±0.5, e ±1, s and ±50. Determined parameters for our
+public results can be found in our supplementary material.
+In our experiments we use the census transform data
+term for the MPI-Sintel and Middlebury datasets with r = 8
+and r2 = 6 for our conference approach Flow Fields and
+r = 4 and r2 = 3 for our improved approaches Flow Fields+
+(Fast). While the values of the conference approach are based
+on a few incoherent tests with the Flow Fields approach the
+values of our improved approaches are based on tests of
+different r on the whole MPI-Sintel training set.
+For our experiments on KITTI 2012 and 2015 we use
+data terms based on the deformation and scale robust SIFT
+features instead (improved approach: SIFT, conference ap-
+proach: SIFT ﬂow with r = 3, S = 12, r2 = 2, S2 = 12, S2
+is S for 2. backward ﬂow). We use SIFT here as the KITTI
+dataset contains image patches of walls and the streets that
+are undergoing extreme scale changes and deformations
+(due to large viewing angles). Thus, patch based approaches
+perform poorly here [4]. By using a different more appro-
+priate data term for KITTI we also demonstrate that in
+our approach the data term can easily be adapted to the
+problem.
+For EpicFlow [3] applied on our approach we use their
+standard parameters which are tuned for Deep Matching
+features [18]. As there are no standard parameters for KITTI
+2015 we use slightingly modiﬁed KITTI 2012 parameters.
+For a fair comparison we use the same parameters (tuning
+, e, s for ANNF does not affect our results), data term
+and WHTs in CIELab space for our tests with the ANNF
+approach [6] (the original approach performs even worse).
+This includes ANNF results in Section 4.2 and in Figure 1
+and 15.
+4.1.1 Inﬂuence of parameters
+The inﬂuence of our parameters can be seen in Figure 9
+and 10. The optimal value of  depends strongly on the
+dataset and data term, but is in our tests always mono-
+tonically decreasing in a large range around the minimum.
+Too small values are more harmful than to large ones. e
+and s are noisy on MPI-Sintel but also contain a clear
+minimum with monotonically decreasing range on KITTI
+2015. We think the noise on MPI-Sintel is caused by the
+fact that it contains different sub-datasets with different
+challenges. These sub-datasets have different optimums for
+e and s. The rightmost plots show the parameter R. “4”
+means 4 propagation iterations, “12” means 12 iterations.
+“4+8” means 4 iterations with R+ and 8 iterations with R
+as described in Section 3.3. As can be seen, our approach
+of using 4+8 iterations performs the best if R is chosen
+reasonably. For too large R the error increases faster than
+with 12 ﬁxed R iterations, as the 4+8 approach also uses
+R+ = 2R. While the difference between 4 and 12 iterations
+is larger than between 12 and 8+4, 8+4 has the beneﬁt that it
+has the same runtime as 12. In our conference approach we
+simply used 4 iteration with R = 1, which is suboptimal.
+Fig. 10. The inﬂuence of the parameter k on our approach. We plot the
+main measures for each dataset.
+Figure 10 shows the inﬂuence of k. While k = 3 is
+optimal for both MPI-Sintel as well as KITTI 2015 the error
+only increases slightly for larger k on KITTI but signiﬁcantly
+on MPI-Sintel. This is likely caused by the fact that MPI-
+Sintel contains much more small independently moving
+objects than KITTI. These cannot be determined anymore
+if k is too large.
+4.2 Comparison to ANNF
+In the introduction we claimed that our Flow Fields are
+better suited for optical ﬂow estimation than ANNF and
+contain signiﬁcantly fewer outliers. To prove our statement
+quantitatively we compare our Flow Fields with different
+number of scales k to the state-of-the-art ANNF approach
+presented in [6]. We also compare to the real NNF calculated
+in several days on the GPU. The comparison (to our Flow
+Fields approach) is performed in Table 2 with 4 different
+measures:
+• The percentage of ﬂows with an EPE below 3 pixels.
+• The EPE bounded to a maximum of 10 pixels for
+each ﬂow value (EPE10). Outliers in correspondence
+ﬁelds can have arbitrary offsets, but the difﬁculty to
+remove them does not scale with their EPE. Local
+outliers can even be more harmful since they are
+more likely to pass the consistency check. The EPE10
+considers this.
+• The real endpoint error (EPE) of the raw correspon-
+dence ﬁelds. It has to be taken with care (see EPE10).
+• The EPE after outlier ﬁltering (like in Section 3.7) and
+utilizing EpicFlow to ﬁll the gaps (Epic).
+All 4 measures are determined in non-occluded areas
+only, as it is impossible to determine data based corre-
+spondences in occluded areas. As can be seen, we can
+determine nearly 90% of the pixels on the challenging MPI-
+Sintel training set with an EPE below 3 pixels, relying on
+a purely data based search strategy which considers each
+position in the image as a possible correspondence. With
+Method
+NNF
+Original EpicFlow
+Comparison of different correspondence ﬁelds on a representative
+subset (2x every 10th frame) on non-occluded regions of the MPI-Sintel
+training set (clean and ﬁnal). Results are based on our conference
+approach Flow Fields. See text for details.
+Method
+Ground truth
+Original EpicFlow
+Comparison of our conference approach Flow Fields with different
+scales on the Middlebury training dataset to demonstrate that the
+quality does not suffer from multi-scale matching like in [24]. Note that
+the Epic result is biased to the value in the ﬁrst row.
+weighted median ﬁltering (weighted by matching error) this
+number can even be improved further, but the distribution
+is unfavorable for EpicFlow (it probably removes important
+details similar to some regularization methods). In contrast,
+more scales up to the tested k = 3 have a positive effect
+on the EPE as they successfully can provide the required
+details.
+4.2.1 Differences to scaled matching of Bao et al. [24]
+Bao et al. [24] also used multi-scale matching in their ap-
+proach to speed it up. However, despite joined bilateral
+upsampling combined with local patch matching in a 3x3
+window they found that the accuracy on Middlebury drops
+clearly due to multi-scale matching. As can be seen in
+Table 3, this is not the case for our approach. As expected
+from the experiment in Figure 7 the accuracy even rises.
+Note that the Epic result does not rise much as EpicFlow
+is not designed for datasets like Middlebury with EPEs
+in the subpixel area. Even with the ground truth it does
+not perform much better than with our approach. Our
+upsampling strategy (of our Flow Fields approach) requires
+11 patch comparisons while [24] requires 9 comparisons and
+joined bilateral upsampling. However, in contrast to their
+upsampling strategy ours is non-local which means that
+we can easily correct inaccuracies and errors from a coarser
+scale (the non-locality is demonstrated in Figure 7 a)).
+4.3 Analysis of Outlier Sieve Effect
+In this subsection we analyze the outlier sieve effect of our
+approach (Figure 6) based on resistant outlier probabilities
+Ps(df ) for different setups s and distances df to the ground
+truth p∗
+3. No backward ﬂow calculated
+Fig. 11. We determined the probably that a point is a resistant outlier
+depending on the distance of the point to the ground truth match.
+Probabilities are plotted relative to the blue plot ”1“. See text for details.
+we can deﬁne the following conﬁgurations for s:
+Fig. 12. Experiments with repetitive patterns and texture-less box. For a
+moire free illustration one might have to zoom in. Colors show the ﬂow
+error i.e. white is perfect. Matching gets better with more scales. The
+horizontal structures in the error maps occur as our approach prefers
+horizontal propagation in case of identical matching errors.
+(10)
+2(cid:107)2 is the Euclidean distance to the ground truth
+(cid:107)p2 − p∗
+match. Since the raw probabilities Ps(df ) are difﬁcult to
+read in a plot and as we are mainly interested in the relation
+between probabilities we plot the relation of probabilities
+P rel
+P1(df ) is the resistant outlier probability for patches on
+the ﬁnest scale. As can be expected the ﬁgure shows that
+ﬁner scales (like 1,2) are better for matching close-by to the
+ground truth while coarser scales (like 4,8) are better for
+matching far from the ground truth. Even better seems to
+be to match all scales at once (1+2+4+8). However, this is
+computationally expensive.
+As stated in Section 3.2 the scales of our approach serve
+as a kind of outlier sieve. Outliers can only survive if
+matching fails on all scales. This can be approximated as
+an & operation between the matching terms of the scales
+(like 1&2&4&8).
+However, in our approach the random search can undo
+the & operation of coarser scales in its search range as it
+can redo already sieved outliers here (these outliers are
+actually just inaccurate matches due to their proximity to
+the ground truth). Considering this we get the black curve
+as approximation for the resistant outlier probability of our
+outlier sieve. This curve still keeps the extremely low failure
+rate of 1&2&4&8 for large distances, which is only 4.3% of
+scale 1 for a distance of 200 pixels. This is much lower the
+failure rate of scale 8 (which is 23.2%) or 1+2+4+8 (which
+is 18.6%). For smaller distances the beneﬁt is lower and for
+distances < R (or R+) there is no beneﬁt anymore. This
+Fig. 13. Our multi-scale approach is noise and blur resistant. The left
+image in the lower row shows a part of the tested texture with noise
+factor σ = 0.5, the unmodiﬁed texture and the texture with blur factor
+σ = 5. In the tests we match the noisy/blurred texture to the unmodiﬁed
+one. Our approach with k = 3 still matches the shown examples well.
+means that our approach is very likely to ﬁnd a match that
+is not too far from the ground truth. However regarding
+subpixel accuracy there is no beneﬁt with our approach
+compared to ordinary approaches (for pixels where these
+manage to avoid outliers far from the ground truth).
+4.4 Texture effect tests
+Due to the small random search distance R we can expect
+from our approach that it can ﬂawlessly match repetitive
+patterns as long as the inﬂuence area of the coarsest scale
+is larger than the ambiguous repetitive pattern. That this
+is actually the case for our approach is demonstrated in
+the experiment in Figure 12. While we get a perfect match
+only with k >= 3 the matching error strongly decreases
+already for fewer scales. We think that this is among other
+things due to the outlier sieve effect: as corner pixels can be
+Method
+Flow Fields+
+Flow Fields+ no sub-scales
+Flow Fields+ Fast
+Flow Fields+ Fast
+Flow Fields+ Fast x2
+Flow Fields+ Fast x2
+Flow Fields+ Fast x2
+Original Flow Fields
+time Epic
+matched they can overwrite matches of non-corner pixel,
+but not the other way around. In fact this effect is also
+required for k = 3 as the images are 95x95 pixels in size.
+However, with the used r = 4 the matching patch size is
+only (2r + 1)2k = 72 pixels. The Figure also shows that we
+can expect a similar effect for texture-less objects.
+In natural images repetitive and texture-less objects are
+usually not completely ambiguous. Thus, our approach
+should be able to match them even if the repetitive structure
+exceeds the inﬂuence area of the coarsest scale. Figure 13
+shows that our multi-scale approach is also noise and blur
+resistant. Blur resistance is also conﬁrmed by Figure 15 c).
+Accuracy and runtime of our approaches on the MPI-Sintel training set.
+c×1 or 2 in ﬁlter column means 1x or 2x consistency check. *Runtime
+without EpicFlow.
+Method
+Flow Fields+
+Flow Fields+ no sub-scales
+Flow Fields+ Fast
+Flow Fields+ Fast
+Flow Fields+ Fast
+Flow Fields+ Fast x2
+Flow Fields+ Fast x2
+Original Flow Fields
+time Epic
+> 3px EPE failure rate and runtime of our approaches on the KITTI
+2015 training set. c×1 or 2 in ﬁlter column means 1x or 2x consistency
+check. *Single core runtime without EpicFlow.
+Fig. 14. Percentage of removed outliers versus percentage of removed
+inliers, for an outlier threshold of 5 pixels (We vary ).
+4.5 Outlier Filtering
+Figure 14 shows the percentage of outliers that are removed
+versus the percentage of inliers that are removed by dif-
+ferent consistency checks on the MPI-Sintel training set.
+Both the 2x consistency check as well as the region ﬁlter
+increase the amount of removed outliers for a ﬁxed inlier
+ratio. We also considered using the matching error Ed for
+outlier ﬁltering, but there is no big gain to achieve (see
+supplementary material).
+4.6 Evaluation of our approaches
+Here we compare the performance and runtime of our dif-
+ferent approaches on the MPI-Sintel and KITTI 2015 training
+sets (on the test sets only the best version of an approach
+shall be submitted). As can be seen in the ﬁrst two results in
+Table 4 and 5, sub-scales improve the matching accuracy,
+with a reasonable increase in runtime. If speed matters
+the Flow Fields+ Fast approach can provide results much
+faster, with relatively small accuracy trade-off. Flow Fields+
+Fast x2 is again much faster, while even this approach still
+outperforms our original conference approach in accuracy
+(if we do not use q=8). The tables also show that while
+the 2. consistency check improves the result, it also requires
+extra runtime which is why it is not recommendable for
+our fast approaches. On MPI-Sintel the runtime of EpicFlow
+exceeds the runtime of our Flow Fields+ Fast x2 approach.
+We can decrease it by increasing q. However, this has a
+clear impact on the accuracy. Our results on KITTI show
+that our fast feature approach F2F is comparable to the F2
+approach regarding matching accuracy. In the shown test it
+even performs slightly better which we consider as noise as
+in another test it performed slightly worse.
+4.7 Public Results
+In this subsection we present the public results of our
+approach on different public evaluation portals. We consider
+our conference approach Flow Fields [12], our improved
+approach Flow Fields+ and for completeness also our very
+recent CNN based publication [30] that uses CNN based
+features as Flow Fields+CNN. Flow Fields+ Fast is not consid-
+ered here as the evaluation portals request to submit only
+the best approach of a publication and to test variations of
+an approach on the training set. As results in the evaluation
+portals change regularly we only compare to similar ap-
+proaches. For a full overview of approaches we refer to the
+corresponding evaluation portals [8], [10], [11], [13] (links in
+reference section).
+4.7.1 MPI-Sintel
+Our results on MPI-Sintel are shown Table 6. Our conference
+approach Flow Fields already clearly outperforms the origi-
+nal EpicFlow that is based on Deep Matching features [18].
+Most of this advance is obtained in the non-occluded area
+but EpicFlow also rewards our better input in the occluded
+areas. Our improved approach Flow Fields+ again performs
+clearly better than our conference approach – especially on
+the clean set. Here it is at the moment of writing this article
+the best submission on the non-occluded area with an EPE
+of only 0.820, while the 2. best recent submission (MR-Flow,
+yet unpublished) has an EPE of 0.983. Still, our approach is
+4. Single core runtime, in conference paper we reported multicore
+Method (Final set)
+EPE all
+Method
+Flow Fields+
+Flow Fields
+Method (Clean set)
+Flow Fields
+from occlusion boundary. s40+ = motions of more than 40 pixels.
+EPE all runtime
+all
+Flow Fields+
+Flow Fields
+Method
+Fl-all
+Results on KITTI 2015 test set. nocc. = Non-occluded. “fg” means only
+foreground pixels, “bg” only background pixels. Results are <3 pixel.
+4.8 Visual Results
+Visual results of our approach are shown in Figure 15.
+EpicFlow can preserve considerably more details with our
+Flow Fields than with the original Deep Matching features.
+Even in failure cases like in Figure 15 a) (right column), our
+approach often still achieves a smaller EPE thanks to more
+preserved details. Note that the shown failure cases also
+happen to the original EpicFlow. Despite more details our
+approach in general does not incorporate more outliers. The
+occasional removal of important details like the one marked
+in Figure 15 b) remains an issue – even for our improved
+outlier ﬁltering approach. The marked detail is important as
+the ﬂow of the very fast moving object is different on the
+left (brighter green). Still, we can in general preserve more
+details than the original EpicFlow. Figure 15 c) shows that
+our approach also performs well in the presence of motion
+and defocus blur.
+5 CONCLUSION
+In this article we presented a novel correspondence ﬁeld ap-
+proach for optical ﬂow estimation. We showed that our Flow
+Fields are clearly superior to ANNF and better suited than
+state-of-the-art descriptor matching techniques, regarding
+optical ﬂow estimation. We also presented extended outlier
+ﬁltering and demonstrated that we can obtain promising
+optical ﬂow results, utilizing a modern optical ﬂow algo-
+rithm like EpicFlow. Compared to the conference version
+we further improved our approach both in accuracy and
+runtime efﬁciency. We also gave a deeper insight into our
+approach. With our results, we hope to inspire the research
+of dense correspondence ﬁeld estimation for optical ﬂow.
+ACKNOWLEDGMENTS
+This work was partially funded by the BMBF project DY-
+NAMICS (01IW15003) and the EU 7th Framework Pro-
+gramme project AlterEgo (600610).
+only the 2. best for the overall error (EPE all) as MR-Flow
+seems to have a better interpolation into the occluded area
+(for which we still use EpicFlow). With better interpolation
+on top of our approach it might perform better here, as well.
+Our approach with CNN-based features [30] performs best
+on the ﬁnal set. We think that learned features beneﬁt from
+the motion blur that is only in the ﬁnal set while on the clean
+set there is not such a big improvement possible.
+4.7.2 Middlebury
+On Middlebury our conference approach (Flow Fields) ob-
+tains an average rank of 38.0 (EpicFlow: 52.2) and an
+average EPE of 0.33 (EpicFlow: 0.39). Our rank is either
+exactly the same as EpicFlow (e.g. 69 on Army) or better
+(e.g. 4 instead of 53 on Urban). As already discussed in
+Section 4.2 the EPE rank that can be obtained with EpicFlow
+on Middlebury is limited, as EpicFlow is not designed for
+such datasets. Nevertheless, we can improve the result on
+some datasets. Due to the limitations with EpicFlow on
+Middleburry we do not create Flow Fields+ results.
+4.7.3 KITTI 2012 and 2015
+Our results on KITTI 2012 and 2015 can be seen in Table 7
+and 8, respectively. As can be seen, our conference ap-
+proach Flow Fields already clearly outperforms the original
+EpicFlow with Deep Matching features on KITTI 2012. Our
+improved approach Flow Fields+ performs even better. To
+the best of our knowledge our Flow Fields+ approach is
+so far the best approach both on KITTI 2012 and 2015
+that does not use CNNs like [30], [36] or object segmen-
+tation and rigidity assumptions for the segmented objects
+like [37], [38], [39]. Thus, in contrast to all better performing
+approaches ours also works for non-rigid scenes or scenes
+where object segmentation fails and does not require to train
+a neural network, for which proper training data is required.
+Our CNN-based approach [30] performs even better, but
+does require proper training data.
+Images
+Ground truth
+Images
+Ground truth
+Ground truth
+FF+Epic
+FF+Epic
+Ground truth
+Fig. 15. The left 4 columns show example results. Images is the average of both input images. For ANNF we use [6] in a fair way (see text). FF
+means Flow Fields. OM means that the ground truth occlusion map is added (black pixels, it is incomplete at image boundaries). Filtered FF is
+after outlier ﬁltering (deleted pixels in black). FF+Epic is EpicFlow applied on our Flow Fields. EpicFlow is the original EpicFlow. Right column: a)
+Our approach fails in the face of the right person (outlier) and at its back (blue samples too far right). Still our EPE is smaller due to more preserved
+details. b) The marked bright green ﬂow is not considered due to too strong outlier ﬁltering. This makes a huge difference here. c) We show that
+our Flow Fields (bottom left) perform much better in the presence of blur than ANNF (top left).
+REFERENCES
+[10] A. Geiger, P. Lenz, C. Stiller, and R. Urtasun, “Vision
+meets robotics: The kitti dataset,” The International Journal of
+Robotics Research, 2013. [Online]. Available: http://www.cvlibs.
+net/datasets/kitti/eval stereo ﬂow.php?benchmark=ﬂow 2, 7, 10
+[11] M. Menze and A. Geiger, “Object scene ﬂow for autonomous
+vehicles,” in Computer Vision and Pattern Recognition (CVPR), 2015.
+[Online]. Available: http://www.cvlibs.net/datasets/kitti/eval
+scene ﬂow.php?benchmark=ﬂow 2, 7, 10
+[12] C. Bailer, B. Taetz, and D. Stricker, “Flow ﬁelds: Dense correspon-
+dence ﬁelds for highly accurate large displacement optical ﬂow
+estimation,” in ICCV.
+and their principles,” in CVPR.
+[19] R. Kennedy and C. J. Taylor, “Optical ﬂow with geometric oc-
+clusion estimation and fusion of multiple frames,” in Energy
+Minimization Methods in Computer Vision and Pattern Recognition.
+Springer, 2015, pp. 364–377. 2
+[20] R. Timofte and L. Van Gool, “Sparse ﬂow: Sparse matching for
+small to large displacement optical ﬂow,” in Applications of Com-
+puter Vision (WACV).
+large displacement optical ﬂow,” in CVPR.
+[38] J. Hur and S. Roth, “Joint optical ﬂow and temporally consistent
+semantic segmentation,” in European Conference on Computer Vision
+(ECCV), 2016. 11

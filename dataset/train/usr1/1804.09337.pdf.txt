@@ -1,0 +1,615 @@
+Learning a Discriminative Feature Network for Semantic Segmentation
+Changqian Yu1
+Jingbo Wang2
+Chao Peng3
+Changxin Gao1∗ Gang Yu3 Nong Sang1
+1Key Laboratory of Ministry of Education for Image Processing and Intelligent Control,
+School of Automation, Huazhong University of Science and Technology
+2Key Laboratory of Machine Perception, Peking University
+{changqian yu,cgao,nsang}@hust.edu.cn,wangjingbo1219@pku.edu.cn,{pengchao,yugang}@megvii.com
+Abstract
+Most existing methods of semantic segmentation still suf-
+fer from two aspects of challenges: intra-class inconsis-
+tency and inter-class indistinction. To tackle these two prob-
+lems, we propose a Discriminative Feature Network (DFN),
+which contains two sub-networks: Smooth Network and
+Border Network. Speciﬁcally, to handle the intra-class in-
+consistency problem, we specially design a Smooth Network
+with Channel Attention Block and global average pooling
+to select the more discriminative features. Furthermore, we
+propose a Border Network to make the bilateral features of
+boundary distinguishable with deep semantic boundary su-
+pervision. Based on our proposed DFN, we achieve state-
+of-the-art performance 86.2% mean IOU on PASCAL VOC
+2012 and 80.3% mean IOU on Cityscapes dataset.
+1. Introduction
+Semantic segmentation is a fundamental technique for
+numerous computer vision applications like scene under-
+standing, human parsing and autonomous driving. With
+the recent development of the convolutional neural network,
+especially the Fully Convolutional Network (FCN) [27], a
+lot of great work such as [40, 6, 19, 30] have obtained
+promising results on the benchmarks. However, the features
+learned by these methods are usually not discriminative to
+differentiate 1) the patches which share the same seman-
+tic label but different appearances, named intra-class incon-
+sistency as shown in the ﬁrst row of Figure 1; 2) the two
+adjacent patches which have different semantic labels but
+with similar appearances, named inter-class indistinction as
+shown in the second row of Figure 1.
+To address these two challenges, we rethink the seman-
+tic segmentation task from a more macroscopic point of
+view. In this way, we regard the semantic segmentation as
+∗Corresponding author.
+Figure 1. Hard examples in semantic segmentation. The second
+column is the output of FCN based model. The third column is the
+output of our proposed approach. In the ﬁrst row, the left bottom
+corner of the cow is recognized as a horse. This is the Intra-class
+Inconsistency problem. In the second row, the computer case has
+the similar blue light and black shell with the computer screen,
+which is hard to distinguish. This is the Inter-class Indistinction
+problem.
+a task to assign a consistent semantic label to a category of
+things, rather than to each single pixel. From a macroscopic
+perspective, regarding each category of pixels as a whole,
+inherently considers both intra-class consistency and inter-
+class variation. It means that the task demands discrimina-
+tive features. To this end, we present a novel Discriminative
+Feature Network (DFN) to learn the feature representation
+which considers both the “intra-class consistency” and the
+“inter-class distinction”.
+Our DFN involves two components: Smooth Network
+and Border Network, as Figure 2 illustrates. The Smooth
+Network is designed to address the intra-class inconsistency
+issue. To learn a robust feature representation for intra-class
+consistency, we usually consider two crucial factors. On
+the one hand, we need multi-scale and global context fea-
+tures to encode the local and global information. For ex-
+ample, the small white patch only in Figure 1(a) usually
+cannot predict the correct category due to the lack of sufﬁ-
+cient context information. On the other hand, as multi-scale
+context is introduced, for a certain scale of thing, the fea-
+tures have different extent of discrimination, some of which
+may predict a false label. Therefore, it is necessary to se-
+lect the discriminative and effective features. Motivated by
+these two aspects, our Smooth Network is presented based
+on the U-shape [30, 19, 31, 11, 36] structure to capture
+the multi-scale context information, with the global aver-
+age pooling [21, 24, 40, 6] to capture the global context.
+Also, we propose a Channel Attention Block (CAB), which
+utilizes the high-level features to guide the selection of low-
+level features stage-by-stage.
+Border Network, on the other hand, tries to differentiate
+the adjacent patches with similar appearances but different
+semantic labels. Most of the existing approaches [24, 40,
+6, 30] consider the semantic segmentation task as a dense
+recognition problem, which usually ignores explicitly mod-
+eling the inter-class relationship. Consider the example in
+Figure 1(d), if more and more global context is integrated
+into the classiﬁciation process, the computer case next to
+the monitor can be easily misclassiﬁed as a monitor due to
+the similar appearance. Thus, it is signiﬁcant to explicitly
+involve the semantic boundary to guide the learning of the
+features.
+It can amplify the variation of features on both
+sides. In our Border Network, we integrate semantic bound-
+ary loss during the training process to learn the discrimina-
+tive features to enlarge the “inter-class distinction”.
+In summary, there are four contributions in our paper:
+• We rethink the semantic segmentation task from a new
+macroscopic point of view. We regard the semantic
+segmentation as a task to assign a consistent semantic
+label to one category of things, not just at the pixel
+level.
+• We propose a Discriminative Feature Network to si-
+multaneously address the “intra-class consistency” and
+“inter-class variation” issues. Experiments on PAS-
+CAL VOC 2012 and Cityscapes datasets validate the
+effectiveness of our proposed algorithm.
+• We present a Smooth Network to enhance the intra-
+class consistency with the global context and the Chan-
+nel Attention Block.
+• We design a bottom-up Border Network with deep su-
+pervision to enlarge the variation of features on both
+sides of the semantic boundary. This can also reﬁne
+the semantic boundary of prediction.
+Recently,
+lots of approaches based on FCN have
+achieved high performance on different benchmarks [42, 9,
+8]. Most of them are still constrained by intra-class incon-
+sistency and inter-class indistinction issues.
+Encoder-Decoder: The FCN model has inherently en-
+coded different levels of feature. Naturally, some methods
+integrate them to reﬁne the ﬁnal prediction. This branch of
+methods mainly consider how to recover the reduced spa-
+tial information caused by consecutive pooling operator or
+convolution with stride. For example, SegNet [1] utilizes
+the saved pool indices to recover the reduced spatial in-
+formation. U-net [31] uses the skip connection, while the
+Global Convolutional Network [30] adapts the large kernel
+size. Besides, LRR [11] adds the Laplacian Pyramid Re-
+construction network, while ReﬁneNet [19] utilizes multi-
+path reﬁnement network. However, this type of architecture
+ignores the global context.
+In addition, most methods of
+this type are just summed up the features of adjacent stages
+without consideration of their diverse representation. This
+leads to some inconsistent results.
+Global Context: Some modern methods have proven the
+effectiveness of global average pooling. ParseNet [24]
+ﬁrstly applies global average pooling in the semantic seg-
+mentation task. Then PSPNet [40] and Deeplab v3 [6] re-
+spectively extend it to the Spatial Pyramid Pooling [13] and
+Atrous Spatial Pyramid Pooling [5], resulting in great per-
+formance in different benchmarks. However, to take advan-
+tage of the pyramid pooling module sufﬁciently, these two
+methods adopt the base feature network to 8 times down-
+sample with atrous convolution [5, 38], which is time-
+consuming and memory intensive.
+Attention Module: Attention is helpful to focus on what
+we want. Recently, the attention module becomes increas-
+ingly a powerful tool for deep neural networks [28, 33, 16,
+3]. The method in [7] pays attention to different scale infor-
+mation. In this work, we utilize channel attention to select
+the features similar to SENet [16].
+Semantic Boundary Detection: Boundary detection is a
+fundamental challenge in computer vision. There are lots of
+speciﬁc methods proposed for the task of boundary detec-
+tion [39, 36, 37, 25]. Most of these methods straightly con-
+catenate the different level of features to extract the bound-
+ary. However, in this work, our goal is to obtain the features
+with inter-class distinction as much as possible with accu-
+rate boundary supervision. Therefore, we design a bottom-
+up structure to optimize the features on each stage.
+In this section, we ﬁrst detailedly introduce our proposed
+Discriminative Feature Network containing Smooth Net-
+work and Border Network. Then, we elaborate how these
+two networks speciﬁcally handle the intra-class consistency
+issue and the inter-class distinction issue. Finally, we de-
+scribe the complete encoder-decoder network architecture,
+Discriminative Feature Network.
+Figure 2. An overview of the Discriminative Feature Network. (a) Network Architecture. (b) Components of the Reﬁnement Residual
+Block (RRB). (c) Components of the Channel Attention Block (CAB). The red and blue lines represent the upsample and downsample
+operators, respectively. The green line can not change the size of feature maps, just a path of information passing.
+In the task of semantic segmentation, most of modern
+methods consider it as a dense prediction issue. However,
+the prediction sometimes has incorrect results in some parts,
+especially the parts of large regions and complex scenes,
+which is named intra-class inconsistency issue.
+The intra-class inconsistency problem is mainly due to
+the lack of context. Therefore, we introduce the global con-
+text with global average pooling [24, 21, 40, 6]. However,
+global context just has the high semantic information, which
+is not helpful for recovering the spatial information. Con-
+sequently, we further need the multi-scale receptive view
+and context to reﬁne the spatial information, as most mod-
+ern approaches [40, 6, 30] do. Nevertheless, there exists
+a problem that the different scales of receptive views pro-
+duce the features with different extents of discrimination,
+leading to inconsistent results. Therefore, we need to select
+more discriminative features to predict the uniﬁed semantic
+label of one certain category.
+In our proposed network, we use ResNet [14] as a base
+recognition model. This model can be divided into ﬁve
+stages according to the size of the feature maps. According
+to our observation, the different stages have different recog-
+nition abilities resulting in diverse consistency manifesta-
+tion. In the lower stage, the network encodes ﬁner spatial
+information, however, it has poor semantic consistency be-
+cause of its small receptive view and without the guidance
+of spatial context. While in the high stage, it has strong
+semantic consistency due to large receptive view, however,
+the prediction is spatially coarse. Overall, the lower stage
+makes more accurate spatial predictions, while the higher
+stage gives more accurate semantic predictions. Based on
+this observation, to combine their advantages, we propose
+a Smooth Network to utilize the high stage’s consistency to
+guide the low stage for the optimal prediction.
+We observe that
+in the current prevalent semantic
+segmentation architecture,
+there are mainly two styles.
+The ﬁrst one is “Backbone-Style”, such as PSPNet [40],
+Deeplab v3 [6].
+It embeds different scale context infor-
+mation to improve the consistency of network with the
+Pyramid Spatial Pooling module [13] or Atrous Spatial
+Pyramid Pooling module [5]. The other one is “Encoder-
+Decoder-Style”, like ReﬁneNet [19], Global Convolutional
+Network [30]. This style of network utilizes the inherent
+multi-scale context of different stage, but it lacks the global
+context which has the strongest consistency.
+In addition,
+when the network combines the features of adjacent stages,
+it just sums up these features by channel. This operation
+ignores the diverse consistency in different stages. To rem-
+edy the defect, we ﬁrst embed a global average pooling
+layer [24] to extend the U-shape architecture [27, 36] to a V-
+shape architecture. With the global average pooling layer,
+we introduce the strongest consistency constraint into the
+network as a guidance. Furthermore, to enhance consis-
+tency, we design a Channel Attention Block, as shown in
+Figure 2(c). This design combines the features of adjacent
+stages to compute a channel attention vector 3(b). The fea-
+αKwK
+where ¯y is the new prediction of network and α =
+Sigmoid(x; w)
+Based on the above formulation of the Channel Atten-
+tion Block (CAB), we can explore its practical signiﬁcance.
+In Equation 1, it implicitly indicates that the weights of dif-
+ferent channels are equal. However, as mentioned in Sec-
+tion 1, the features in different stages have different degrees
+of discrimination, which results in different consistency of
+prediction. In order to obtain the intra-class consistent pre-
+diction, we should extract the discriminative features and
+inhibit the indiscriminative features. Therefore, in Equa-
+tion 3, the α value applies on the feature maps x, which
+represents the feature selection with CAB. With this design,
+we can make the network to obtain discriminative features
+stage-wise to make the prediction intra-class consistent.
+Reﬁnement residual block: The feature maps of each
+stage in feature network all go through the Reﬁnement
+Residual Block, schematically depicted in Figure 2(b). The
+ﬁrst component of the block is a 1 × 1 convolution layer.
+We use it to unify the number of channels to 512. Mean-
+while, it can combine the information across all channels.
+Then the following is a basic residual block, which can re-
+ﬁne the feature map. Furthermore, this block can strengthen
+the recognition ability of each stage, inspired from the ar-
+chitecture of ResNet [14, 15].
+3.2. Border network
+In the semantic segmentation task, the prediction is con-
+fused with the different categories with similar appearances,
+especially when they are adjacent spatially. Therefore, we
+need to amplify the distinction of features. With this moti-
+vation, we adopt a semantic boundary to guide the feature
+learning. To extract the accurate semantic boundary, we ap-
+ply the explicit supervision of semantic boundary, which
+makes the network learn a feature with strong inter-class
+distinctive ability. Therefore, we propose a Border Net-
+work to enlarge the inter-class distinction of features.
+It
+directly learns a semantic boundary with an explicit seman-
+tic boundary supervision, similar to a semantic boundary
+detection task. This makes the features on both sides of se-
+mantic boundary distinguishable.
+As stated in Section 3.1, the feature network has differ-
+ent stages. The low stage features have more detailed infor-
+mation, while the high stage features have higher semantic
+information. In our work, we need semantic boundary with
+more semantic meanings. Therefore, we design a bottom-
+up Border Network. This network can simultaneously get
+(a) Channel Attention Block
+(b) Attention Vector
+Figure 3. Schematic diagram of Channel Attention Block. In (a),
+the yellow block represents the feature of low stage, while the red
+one represents high stage. We concatenate the features of adjacent
+stages to compute a weight vector, which re-weights the feature
+maps of low stage. The hotter color represents the high weight
+value. In (b), it is the real attention value vector from the stage-
+4 channel attention block. The deeper blue represents the higher
+weight value.
+tures of high stage provide a strong consistency guidance,
+while the features of low stage give the different discrim-
+ination information of features.
+In this way, the channel
+attention vector can select the discriminative features.
+Channel attention block: Our Channel Attention Block
+(CAB) is designed to change the weights of the features on
+each stage to enhance the consistency, as illustrated in Fig-
+ure 3.
+In the FCN architecture, the convolution operator
+outputs a score map, which gives the probability of each
+class at each pixel. In Equation 1, the ﬁnal score at score
+map is just summed over all channels of feature maps.
+where δ is the prediction probability. y is the output of net-
+work.
+As shown in Equation 1 and Equation 2, the ﬁnal pre-
+dicted label is the category with highest probability. There-
+fore, we assume that the prediction result is y0 of a certain
+patch, while its true label is y1. Consequently, we can intro-
+duce a parameter α to change the highest probability value
+accurate edge information from low stage and obtain se-
+mantic information from high stage, which eliminates some
+original edges lack of semantic information. In this way,
+the semantic information of high stage can reﬁne the de-
+tailed edge information from low stage stage-wise. The
+supervisory signal of the network is obtained from the se-
+mantic segmentation’s groundtruth with a traditional image
+processing method, such as Canny [2].
+To remedy the imbalance of the positive and negative
+samples, we use focal loss [22] to supervise the output of
+the Border Network, as shown in Equation 4. We adjust the
+parameters α and γ of focal loss for better performance.
+The Border Network mainly focuses on the semantic
+boundary which separates the classes on two sides of the
+boundary. For extracting accurate semantic boundary, the
+features on both sides will become more distinguishable.
+This exactly reaches our goal to make the features with
+inter-class distinction as much as possible.
+3.3. Network Architecture
+With Smooth Network and Border Network, we propose
+our Discriminative Feature Network for semantic segmen-
+tation as illustrated in Figure 2 (a).
+We use pre-trained ResNet [14] as a base network. In
+the Smooth Network, we add the global average pooling
+layer on the top of the network to get the strongest consis-
+tency. Then we utilize the channel attention block to change
+the weights of channels to further enhance the consistency.
+Meanwhile, in the Border Network, with the explicit seman-
+tic boundary supervision, the network obtains accurate se-
+mantic boundary and makes the bilateral features more dis-
+tinct. With the support of both sub-networks, the intra-class
+features become more consistent, while the inter-class ones
+grow more distinct.
+For explicit feature reﬁnement, we use deep supervision
+to get better performance and make the network easier to
+optimize. In the Smooth Network, we use the softmax loss
+to supervise the each stage’s upsampled output excluding
+the global average pooling layer, while we use the focal loss
+to supervise the outputs of Border Network. Finally, we use
+a parameter λ to balance the segmentation loss (cid:96)s and the
+boundary loss (cid:96)b, as Equation 7 shows.
+4. Experimental Results
+We evaluate our approach on two public datasets: PAS-
+CAL VOC 2012 [9] and Cityscapes [8]. We ﬁrst introduce
+the datasets and report the implementation details. Then we
+evaluate each component of the proposed method, and ana-
+lyze the results in detail. Finally, we present the comparison
+results with other state-of-the-art methods.
+PASCAL VOC 2012: The PASCAL VOC 2012 is a well-
+known semantic segmentation benchmark which contains
+20 object classes and one background, involving 1,464 im-
+ages for training, 14,449 images for validation and 1,456
+images for testing. The original dataset is augmented by
+the Semantic Boundaries Dataset [12], resulting in 10,582
+images for training.
+Cityscapes: The Cityscapes is a large semantic segmen-
+tation dataset of urban street scene in car perspective. The
+dataset contains 30 classes, of which 19 classes are consid-
+ered for training and evaluation. There are 2,979 images
+for training, 500 images for validation and 1,525 images for
+testing, which are all ﬁne annotated. And there are another
+19,998 images with coarse annotation. The images all have
+a high resolution of 2,048×1,024.
+4.1. Implementation details
+max iter
+Our proposed network is based on the ResNet-101 pre-
+trained on ImageNet [32]. And we use the FCN4 [27, 36]
+as our base segmentation framework.
+Training: We train the network using mini-batch stochas-
+tic gradient descent (SGD) [17] with batch size 32, momen-
+tum 0.9 and weight decay 0.0001. Inspired by [5, 24], we
+use the “poly” learning rate policy where the learning rate
+initial learning rate 4e−3. As for the λ, we ﬁnally use the
+value of 0.1 after a series of comparison experiments. For
+measuring the performance of our proposed network, we
+use the mean pixel intersection-over-union (mean IOU) as
+the metric.
+Data augmentation: We use mean subtraction and ran-
+dom horizontal ﬂip in training for both PASCAL VOC 2012
+and Cityscapes. In addition, we ﬁnd it is crucial to randomly
+scale the input images, which improves the performance ob-
+viously. We use 5 scales {0.5, 0.75, 1, 1.5, 1.75} on both
+datasets.
+4.2. Ablation study
+In this subsection, we will step-wise decompose our ap-
+proach to reveal the effect of each component. In the fol-
+lowing experiments, we evaluate all comparisons on PAS-
+CAL VOC 2012 dataset [9]. And we report the comparison
+results in PASCAL VOC 2012 dataset [9] and Cityscapes
+dataset [8].
+Figure 4. Results of Smooth Network on PASCAL VOC 2012
+dataset.
+Table 1. The performance of ResNet-101 with and without random
+scale augmentation.
+Random Scale Mean IOU(%)
+We use the ResNet-101 as our base feature network, and
+directly upsample the ouput. First, we evaluate the perfor-
+mance of the base ResNet-101, as shown in Table 1. Then
+we extend the base network to FCN4 structure [27, 36] with
+our proposed Reﬁnement Residual Block (RRB), which im-
+proves the performance from 72.86% to 76.65%, as Table 2
+shows. We visualize the effect of the Smooth Network. Fig-
+ure 4 presents some examples of semantic segmentation re-
+sults. Obviously, our Smooth Network can effectively make
+the prediction more consistent.
+Ablation for global pooling: We need the features with
+strong consistency. Thus based our observation in Sec-
+tion 3, we add the global average pooling on the top of the
+network. As shown in Table 2, the global average pooling
+introduces the strongest consistency to guide other stages.
+This improves the performance from 76.65% to 78.20%,
+which is an obvious improvement.
+Ablation for deep supervision: To reﬁne the hierarchical
+features, we use deep supervision. We add the softmax loss
+on each stage excluding the global average pooling layer.
+As shown in Table 2, this further improves the performance
+by almost 0.4%.
+Ablation for channel attention block: Based on the
+aforementioned architecture, we add the Channel Atten-
+tion Block (CAB). It utilizes the high stage to guide the
+Figure 5. Results of Border Network on PASCAL VOC 2012
+dataset. The boundary on prediction is reﬁned by the Border Net-
+work.
+Table 2. Detailed performance comparison of our proposed
+Smooth Network. RRB: reﬁnement residual block. GP: global
+pooling branch. CAB: channel attention block. DS: deep supervi-
+sion.
+low stage with a channel attention vector to enhance con-
+sistency, which improves the performance from 78.51% to
+79.54% over evaluation, as Table 2 shows.
+While the Smooth Network pays attention to the intra-class
+consistency, the Border Network focuses on the inter-class
+indistinction. Due to the accurate boundary supervisory sig-
+nal, the network ampliﬁes the distinction of bilateral feature
+to extract the semantic boundary. Then we integrate the
+Border Network into the Smooth Network. This improves
+the performance from 79.54% to 79.67%, as shown in Ta-
+ble 3. The Border Network optimizes the semantic bound-
+ary, which is a comparably small part of the whole image,
+so this design makes a minor improvement. We visualize
+the effect of Border Network, as shown in Figure 5. In ad-
+dition, Figure 6 shows the predicted semantic boundary of
+Border Network. We can obviously observe that the Border
+Network can focus on the semantic boundary preferably.
+Figure 6. The boundary prediction of Border Network on PASCAL
+VOC 2012 dataset. The third column is the semantic boundary
+extracted from GroundTruth by Canny operator. The last column
+is the prediction results of Border Network.
+Table 3. Combining the Border Network and Smooth Network as
+Discriminative Feature Network. SN: Smooth Network. BN: Bor-
+der Network. MS Flip: Adding multi-scale inputs and left-right
+ﬂipped inputs.
+4.2.3 Discriminative Feature network
+With the Discriminative Feature Network (DFN), we con-
+duct experiments about the balance parameter of the com-
+bined loss. Then we present the ﬁnal results on PASCAL
+VOC 2012 and Cityscapes datasets.
+Balance of both losses: The balance weight between
+the losses of two networks is crucial. To further ana-
+lyze the effect of these two networks, we conduct experi-
+ments for different balance value. We test ﬁve values of
+{0.05, 0.1, 0.5, 0.75, 1}. As shown in Figure 8, with the
+same setting, our method achieves the highest performance
+with the value of 0.1.
+Stage-wise reﬁnement:
+is worth noting that both
+Smooth Network and Border Network use the stage-wise
+mechanism. The Smooth Network utilizes a top-down
+stage-wise manner to transmit the context information from
+high stage to low stage, to ensure the inter-class consistency.
+On the other hand, the Border Network uses a bottom-up
+stage-wise manner to reﬁne the semantic boundary with the
+edge information in the lower stage. With the bidirectional
+Figure 7. Example results of DFN in the stage-wise reﬁnement
+process on PASCAL VOC 2012 dataset. The ﬁrst column is the
+original image and groundtruth. The last is the reﬁnement process
+of two networks. The segmentation prediction in lower stage is
+more spatial coarse, and the higher is ﬁner. While the boundary
+prediction in lower stage contains more edges not belong to se-
+mantic boundary, the semantic boundary in higher stage is more
+pure.
+Figure 8. Results of DFN with different λ value on PASCAL VOC
+2012 dataset.
+stage-wise mechanism, the Smooth Network and Border
+Network respectively reﬁne the segmentation and bound-
+ary prediction, as shown in Figure 7. The gradually accu-
+rate predictions validate the effectiveness of the stage-wise
+mechanism.
+Table 4. Validation strategy on PASCAL VOC 2012 dataset.
+MS Flip: Multi-scale and ﬂip evaluation.
+Method
+DFN
+DFN
+DFN
+train data MS Flip Mean IOU(%)
+Table 5. Performance on PASCAL VOC 2012 test set. Methods
+pre-trained on MS-COCO are marked with +.
+Figure 9. Example results of DFN on Cityscapes dataset.
+Table 6. Performance on Cityscapes test set. The “-” indicates that
+the method do not present this result in its paper.
+Method
+w/o coarse w/ coarse
+puts to further improve the performance. In addition, since
+the PASCAL VOC 2012 dataset provides higher quality of
+annotation than the augmented datasets [12], we further
+ﬁne-tune our model on PASCAL VOC 2012 train set for
+evaluation on validation set. More performance details are
+listed in Table 4. And then for evaluation on test set, we use
+the PASCAL VOC 2012 trainval set to further ﬁne-tune our
+proposed method.
+In the end, our proposed approach re-
+spectively achieves performance of 82.7% and 86.2% with
+and without MS-COCO [23] ﬁne-tuning, as shown in Ta-
+ble 5. Note that, we do not use Dense-CRF [4] post-
+processing for our method.
+Performance evaluation on Cityscapes: We also evalu-
+ate our approach on the Cityscapes dataset [8]. In training,
+our crop size of image is 800× 800. We observe that for the
+high resolution of image the large crop size is useful. The
+test performance results are speciﬁcally reported in Table 6.
+We visualize the results of our approach on the Cityscapes
+dataset, as shown in Figure 9.
+5. Conclusion
+We redeﬁne the semantic segmentation from a macro-
+scopic view of point, regarding it as a task to assign a
+consistent semantic label to one category of objects, rather
+than to each single pixel. Inherently, this task requires the
+intra-class consistency and inter-class distinction. Aiming
+to consider both sides, we propose a Discriminative Fea-
+ture Network, which contains two sub-networks: Smooth
+Network and Border Network. With the bidirectional stage-
+wise mechanism, our approach can capture the discrimina-
+tive features for semantic segmentation. Our experimental
+results show that the proposed approach can signiﬁcantly
+improve the performance on the PASCAL VOC 2012 and
+Cityscapes benchmarks.
+Acknowledgment
+References
+[1] V. Badrinarayanan, A. Kendall, and R. Cipolla. Segnet: A
+deep convolutional encoder-decoder architecture for image
+IEEE Transactions on Pattern Analysis and
+segmentation.
+Machine Intelligence, 39(12):2481–2495, 2017. 2
+[3] L. Chen, H. Zhang, J. Xiao, L. Nie, J. Shao, and T.-S. Chua.
+Sca-cnn: Spatial and channel-wise attention in convolutional
+networks for image captioning. In IEEE Conference on Com-
+puter Vision and Pattern Recognition, 2017. 2
+[4] L.-C. Chen, G. Papandreou, I. Kokkinos, K. Murphy, and
+A. L. Yuille. Semantic image segmentation with deep con-
+In International
+volutional nets and fully connected crfs.
+Conference on Learning Representations, 2015. 8
+[10] S. Y. Falong Shen, Gan Rui and G. Zeng. Semantic segmen-
+tation via structured patch prediction, context crf and guid-
+ance crf. In IEEE Conference on Computer Vision and Pat-
+tern Recognition, 2017. 8
+[11] G. Ghiasi and C. C. Fowlkes. Laplacian pyramid reconstruc-
+tion and reﬁnement for semantic segmentation. In European
+Conference on Computer Vision, 2016. 2, 8
+in deep convolutional networks for visual recognition.
+European Conference on Computer Vision, 2014. 2, 3
+Imagenet
+In
+classiﬁcation with deep convolutional neural networks.
+Neural Information Processing Systems, 2012. 5
+[18] X. Li, Z. Liu, P. Luo, C. C. Loy, and X. Tang. Not all pixels
+are equal: difﬁculty-aware semantic segmentation via deep
+layer cascade. In IEEE Conference on Computer Vision and
+Pattern Recognition, 2017. 8
+[19] G. Lin, A. Milan, C. Shen, and I. Reid. Reﬁnenet: Multi-
+path reﬁnement networks with identity mappings for high-
+In IEEE Conference on
+resolution semantic segmentation.
+Computer Vision and Pattern Recognition, 2017. 1, 2, 3, 8
+[20] G. Lin, C. Shen, A. van den Hengel, and I. Reid. Efﬁcient
+piecewise training of deep structured models for semantic
+segmentation. In IEEE Conference on Computer Vision and
+Pattern Recognition, 2016. 8
+cal loss for dense object detection.
+Conference on Computer Vision, 2017. 5
+[29] M. Mostajabi, P. Yadollahpour, and G. Shakhnarovich. Feed-
+forward semantic segmentation with zoom-out features. In
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion, 2015. 8
+[31] O. Ronneberger, P. Fischer, and T. Brox. U-net: Convolu-
+tional networks for biomedical image segmentation. In In-
+ternational Conference on Medical Image Computing and
+Computer-Assisted Intervention, 2015. 2
+[34] P. Wang, P. Chen, Y. Yuan, D. Liu, Z. Huang, X. Hou, and
+G. Cottrell. Understanding convolution for semantic seg-
+In IEEE Conference on Computer Vision and
+mentation.
+Pattern Recognition, 2017. 8
+[37] J. Yang, B. Price, S. Cohen, H. Lee, and M.-H. Yang. Object
+contour detection with a fully convolutional encoder-decoder
+network. In IEEE Conference on Computer Vision and Pat-
+tern Recognition, 2016. 2
+[38] F. Yu and V. Koltun. Multi-scale context aggregation by di-
+lated convolutions. In International Conference on Learning
+Representations, 2016. 2
+[39] Z. Yu, C. Feng, M.-Y. Liu, and S. Ramalingam. Casenet:
+Deep category-aware semantic edge detection. In IEEE Con-
+ference on Computer Vision and Pattern Recognition, 2017.
+2

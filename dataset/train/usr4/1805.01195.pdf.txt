@@ -1,0 +1,555 @@
+BirdNet: a 3D Object Detection Framework
+from LiDAR information
+Jorge Beltr´an, Carlos Guindel, Francisco Miguel Moreno,
+Daniel Cruzado, Fernando Garc´ıa, Member, IEEE and Arturo de la Escalera
+Intelligent Systems Laboratory (LSI) Research Group
+Universidad Carlos III de Madrid, Legan´es, Madrid, Spain
+{jbeltran, cguindel, franmore, dcruzado, fegarcia, escalera}@ing.uc3m.es
+Abstract— Understanding driving situations regardless the
+conditions of the trafﬁc scene is a cornerstone on the path
+towards autonomous vehicles; however, despite common sensor
+setups already include complementary devices such as LiDAR
+or radar, most of the research on perception systems has
+traditionally focused on computer vision. We present a LiDAR-
+based 3D object detection pipeline entailing three stages. First,
+laser information is projected into a novel cell encoding for
+bird’s eye view projection. Later, both object location on the
+plane and its heading are estimated through a convolutional
+neural network originally designed for image processing. Fi-
+nally, 3D oriented detections are computed in a post-processing
+phase. Experiments on KITTI dataset show that the proposed
+framework achieves state-of-the-art results among comparable
+methods. Further tests with different LiDAR sensors in real
+scenarios assess the multi-device capabilities of the approach.
+I. INTRODUCTION
+In recent years, the rapid evolution of technology has
+signiﬁcantly boosted the level of automation in road vehicles.
+In a brief period of time, cars manufacturers have gone from
+advertising Advanced Driver Assistance Systems (ADAS)
+or automatic parking maneuvers to commercial vehicles
+offering a high degree of automation in roads. This progress
+would not have been possible without the growth of artiﬁcial
+intelligence algorithms, which permit extracting knowledge
+from large amounts of real driving data and, thus, developing
+more robust control and perception systems.
+However, to switch from the current automation level to
+actual self-driving cars, further developments in perception
+systems are still required in order to enable full scene
+understanding so that the best driving decisions can be made.
+In this regard, object detection algorithms will play a
+major role, as they constitute a key link in the task of
+identiﬁcation and prediction of potential hazards in the roads.
+Lately, research on object detection for autonomous driv-
+ing has mainly focused on image understanding tasks, proba-
+bly motivated by the great progress experienced by machine
+learning and, especially, deep learning techniques applied
+to computer vision, where they have shown their ability
+to handle the scene variations commonly found in driving
+scenarios, such as different object orientations, changes in
+illumination and occlusions, among others.
+Nonetheless, automated vehicles usually mount other
+kinds of sensors capable of perceiving spatial data, thus
+increasing the robustness of the system. LiDAR sensors
+complement cameras information and work under conditions
+where computer vision often ﬁnds difﬁculties, such as dark-
+ness, fog or rain.
+In order to ﬁll this gap and provide a functional and robust
+perception system even when camera data is not reliable
+due to scene conditions, we present BirdNet, a 3D detection
+and classiﬁcation method based on LiDAR information. To
+comply with real-time requirements, the proposed approach
+is based on a state-of-the-art detector [1]. To be fed into the
+network, the LiDAR point cloud is encoded as a bird’s eye
+view (BEV) image as explained in Sec. III-A, minimizing
+the information loss produced by the projection. In the last
+stage, the 2D detections coming from the network are then
+processed in conjunction with the BEV to obtain the ﬁnal
+3D bounding boxes of the obstacles. A general overview of
+the framework is shown in Fig. I.
+In order to assess the performance of the proposed ap-
+proach, we evaluate our results on the tasks of 2D detection,
+bird’s eye view (BEV) and 3D detection on the challenging
+KITTI Object Detection Benchmark [2].
+The main contributions of the paper are:
+• A novel cell encoding proposal for BEV, invariant to
+distance and differences on LiDAR devices resolution.
+• A 3D detection framework capable of identifying cars,
+cyclists, and pedestrians taking a BEV image as input.
+The rest of this paper is organized as follows. In Section II,
+a brief review of related work is provided. In Section III, a
+detailed description of the proposed approach is presented.
+Experimental results are discussed in Section IV. Finally, the
+conclusions of the paper are drawn in Section V.
+II. RELATED WORK
+Research on autonomous perception has commonly fo-
+cused on modeling advanced hand-crafted features, such as
+HoG [3] or Haar [4].
+Nonetheless, since the emergence of modern Convo-
+lutional Neural Networks (CNNs) and large-scale image
+datasets such as ImageNet [5], object detection studies have
+progressively moved towards feature learning approaches,
+which produce more robust representations of objects, in-
+creasing the performance on classiﬁcation tasks.
+Fig. 1. BirdNet 3D object detection framework. The three outputs of the network are: class (green), 2d bounding box (blue) and yaw angle (red).
+Although CNNs were originally applied to image classiﬁ-
+cation, approaches aiming to integrate them into a full object
+detection pipeline shortly became popular. Firstly, by using
+external segmented objects [6], and later by developing the
+Region Proposals Networks (RPNs) [1].
+In the latest years, on-board 3D object detection task has
+become a key component in the development of autonomous
+vehicles. Given the most common vehicle sensor setups,
+works have been focused on three main research lines.
+Monocular 3D. Besides 2D detections, some approaches
+have been made attempting to provide spatial location of
+objects based on visual information. In [7], 3D object candi-
+dates are placed over a ground plane prior and classiﬁed in
+image space. Similarly, 3D voxel patterns have been used to
+estimate position and orientation of objects in the scene [8].
+Point cloud. Some other works have used point cloud data
+to compute object detections in 3D, either using information
+from stereo cameras or laser sensors. Although there are
+some methods which use hand-crafted features [9] [10], latest
+approaches take advantage of feature learning capabilities.
+two different strategies are
+being explored. On the one hand, some approaches work with
+spatial information by turning the 3D space into a voxel grid
+and applying 3D convolutions [11] [12] [13]. On the other
+hand, 2D CNNs are used by projecting LiDAR point cloud
+into a front view [14] or a bird’s eye view (BEV) [15].
+Among these latter group,
+Data fusion. Since camera and LiDAR are complementary
+data sources, many works have tried to build robust object
+detection frameworks by fusing their information. Traditional
+methods used to obtain 3D ROIs from the point cloud
+and perform classiﬁcation on their image projection [16].
+However, when RPNs step in, the candidate proposal stage
+was outperformed both in ROIs quality and execution time.
+In this direction, a novel approach has been presented in [17]
+where regions of interest and classiﬁcation are computed on
+the image space, and ﬁnal location is performed over the
+LiDAR data.
+Our work falls into the category of point cloud-based
+3D object detection. Nonetheless, in order to meet the time
+requirements of autonomous perception systems, a 2D image
+detector is used. For that purpose, LiDAR information is
+projected into their BEV representation.
+III. PROPOSED APPROACH
+A. Bird eye’s view generation
+1) 3D point cloud representation:
+The data acquired from the LiDAR sensor is provided as a
+point cloud, including the coordinates in meters and the in-
+tensity value from the reﬂected laser beam. This information
+is converted to a BEV image, with total size N × N meters
+and cell size δ, which is a 3-channel image encoding height,
+intensity, and density information. Firstly, the height channel
+represents the maximum height given by a point at each cell,
+and it is limited to a maximum Htop of 3 meters above the
+ground. Secondly, the intensity channel encodes the mean
+intensity of all points that lay in the cell. Finally, the last
+channel represents the density of points in each cell, which
+is computed as the number of points in that cell, divided by
+the maximum possible number of points. This normalization
+process is performed in order to obtain homogeneous and
+meaningful values among all cells, as it is described below.
+2) Density normalization:
+The principal difference between LiDAR sensors lies in the
+number of points they collect from the environment, which
+is mainly due to the number of vertical planes they have, Np,
+and their horizontal resolution, ∆θ. This difference between
+sensors is reﬂected in the bird eye’s view as a big variation
+in the density channel. As a result, DNNs trained with data
+coming from a certain sensor cannot be used with different
+LiDAR devices.
+In order to deal with this problem, a normalization map
+is proposed to take into account the differences produced by
+the amount of lasers beams projected by the LiDAR. This
+map consists of a 2D grid with the same size and resolution
+as the bird eye’s view image, and it represents the maximum
+number of points each cell could contain in the best-case
+scenario. For this, the whole cell is considered a solid object
+with size δ× δ and height Htop, and the intersection between
+that object and the laser beams is analyzed.
+The intersection analysis between each cell and the laser
+beams is performed plane by plane, where each LiDAR
+plane is actually a conical curve, due to the revolution of
+the sensor beam. Given this, if we consider the top view of
+the intersection, this one is simpliﬁed to the cut between a
+square and a circle, where there are three possible outcomes:
+1) All square’s vertexes are outside the circle.
+2) All square’s vertexes are inside the circle.
+3) The circle intersects the square in two points {P1, P2}.
+In the ﬁrst case, the cell is not intersected by the LiDAR
+plane. In the second case, all points in that plane from angle
+θ0 to θn lay inside that cell, where θ0 is the horizontal angle
+of the ﬁrst point in the cell that the sweep encounters, and θn
+is the last one. Finally, the third case will manifest when the
+plane passes through the top and bottom covers of the object,
+with height Htop and 0, respectively. In this case, the angles
+θ0 and θn are calculated as follows: First, only two segments
+of the square, {CD, CB}, are taken into account, where C is
+the closest vertex to the sensor and {B, D} are the vertexes
+connected to C. Then, the intersection points between the
+circle and those segments are calculated as follows, where
+d is the distance from the sensor to the top (bottom) cover
+(the radius of the circle).
+The equation system for
+the circle and segments is
+shown in (1), from which the intersection point coordinates,
+{Px, Py}, are obtained. Here, P is a generalization of the
+intersection points, P1 and P2, which are obtained from
+segments CD and CB, respectively. This equation system
+will raise two possible solutions for each intersection point,
+from which only the point inside the segment CV is valid.
+Finally, the input and output angles, θ0 and θn, are calculated
+as θ = arctan (Px/Py), where each intersection point will
+give one of the angles.
+Finally, once the angles θ0 and θn are known, the number
+of points from plane p that enter cell {i, j} is computed
+using (2) and the maximum number of points for that cell,
+Mi,jmax, is computed in (3).
+if plane intersects cell,
+otherwise.
+B. Inference Framework
+1) Object Detection: We adopt the Faster R-CNN meta-
+architecture [1] to perform object detection on the previously
+generated multi-channel bird eye’s view images. Faster R-
+CNN involves a two-stage process where feature maps
+generated by a feature-extractor CNN are used to generate
+2D detection reﬁnement process. (a) Network output: class, axis-
+proposals within the image, on the one hand, and to classify
+those proposals into different categories, on the other hand.
+Even though Faster R-CNN was designed to handle RGB
+images as an input, it can be viewed as a general framework
+that enables detection over arbitrary 2D structures such as
+the BEV images.
+In this paper, the VGG-16 architecture [18] is used as
+feature extractor. As usual, we sample features at the last
+convolutional layer of the backbone; that is, conv5. However,
+we noticed that the resolution of the resulting feature map,
+16 times smaller than the input image, was not suitable for
+detection of instances whose representation in the BEV is
+limited to a few pixels, such as pedestrians and cyclists. Fol-
+lowing [19], we experiment removing the fourth max pooling
+layer, so that the downsampling performed throughout the
+feature extraction is reduced to 8. Besides, we adopt the
+ROIAlign method introduced in [20] for feature pooling to
+increase the location accuracy.
+We also use an appropriate set of RPN anchors, selected
+through a statistical analysis of the geometry of the projection
+of road users on the BEV. For efﬁciency reasons, only three
+scales, with box areas of 162, 482, and 803 pixels, and three
+ratios, of 1 : 1, 1 : 2, and 2 : 1, are employed.
+2) Orientation Estimation: In addition to the object detec-
+tion task, we endow Faster R-CNN with the ability to detect
+the orientation of the objects. We adopt the approach de-
+scribed in [21] to that end. Objects’ yaw angle is discretized,
+and a new sibling branch is added on top of the feature
+extractor and the common set of fully connected layers
+to perform class-aware multinomial classiﬁcation into Nb
+discrete angle bins. The estimated yaw angle is then obtained
+as the weighted average of the center of the predicted angle
+bin and its most probable neighbor; the probabilities of the
+respective bins, available through a softmax normalization,
+are used as weights. Although we let all bins be equal in size,
+we choose the origin so that the most general orientations
+(i.e., forward/rear, and left/right) are represented without
+error.
+Hence, the expected output from the network is a set of
+bounding boxes, which represent the minimum axis-aligned
+rectangles enclosing the object-oriented bounding boxes,
+provided with a category label as well as an estimation of
+its yaw angle in the ground plane, as shown in Fig. 2a.
+3) Multi-Task Training: Weights of the CNN are op-
+timized through a multi-task loss that takes into account
+the different tasks to be accomplished; that is, generation
+of proposals, classiﬁcation, and orientation estimation. The
+latter is treated as a one-of-many classiﬁcation problem
+and, therefore, a multinomial logistic loss is used. Different
+orientation estimations are given for each class, and only
+the one corresponding to the ground-truth class contributes
+to the loss. On the other hand, to reduce the impact of
+class imbalance in the KITTI dataset, we use a weighted
+multinomial logistic loss where the underrepresented classes
+have a higher contribution to the ﬁnal loss.
+Weights are initialized with a model pre-trained on Im-
+ageNet for recognition on RGB images. As will be shown
+later, these features prove to be useful to initialize our model,
+despite the different nature of the input images. Regarding
+mean subtraction, we assume average values negligible since
+most cells do not contain information.
+4) Data Augmentation: During training, horizontal ﬂip-
+ping is used as a data augmentation technique. Additionally,
+we tackle the fact that KITTI annotations are available only
+within the camera ﬁeld of view by generating new samples
+through the rotation of training BEVs and their annotations
+90◦, 180◦ and 270◦ when we train models intended for full
+360◦ perception.
+C. Post-processing
+In order to obtain accurate 3D object detections, some
+post-processing needs to be performed over the output of
+the network.
+First of all, the estimated object orientation is used in
+order to turn the provided axis-aligned detections into object-
+aligned 2D boxes, as shown in Fig. 2. For that purpose,
+a ﬁxed width w(cid:48) is used for each object class, based on
+a statistical analysis of the dimensions of the road users:
+1.8m for cars, and 0.6m for pedestrians and cyclists. The two
+possible object lengths are computed following (4) and (5),
+and their corresponding rotated bounding box are obtained.
+The selected length l(cid:48) will be the one whose rotated box
+maximizes the IoU with the axis-aligned detection.
+Once the oriented 2D boxes are obtained (see Fig. 2b) the
+height of the objects has to be estimated. Assuming all road
+users are placed on the ground plane, and considering LiDAR
+rays may not collide with the lower parts of distant obstacles
+due to occlusions, a coarse ground plane estimation is
+performed to get the bottommost coordinate of the obstacle.
+A grid is created for the XY plane of the laser point cloud,
+where each of the two-meter-side cells stores the minimum
+height of the points falling inside. To remove possible noise
+TABLE I
+BEV AND 3D DETECTION PERFORMANCE (%) USING DIFFERENT
+WEIGHT INITIALIZATION STRATEGIES, WITH Nb = 8.
+initial weights
+mAP BEV
+ImageNet
+gaussian
+caused by outliers, a median blur is applied to the resulting
+grid.
+Lastly, the ﬁnal 3D detection is deﬁned by: the object
+center C = (x, y, z), where x and y can be obtained from
+the center of the 2D detection, and z is half the object height
+h(cid:48); the object size S = (l(cid:48), w(cid:48), h(cid:48)), where h(cid:48) is the result
+of subtracting the minimum height, taken from the ground
+grid cells below the detection, to the maximum height of the
+object, given by the corresponding channel in the BEV; and
+the estimated yaw θ provided by the network.
+IV. EXPERIMENTS
+The proposed algorithm is evaluated on the KITTI Object
+Detection Benchmark [2] using the training/validation split
+from [19]. The performance of our approach is analyzed from
+different perspectives. Firstly, the effect of different network
+architecture changes is described. Secondly, the importance
+of the different channels encoded in the BEV is assessed
+through a set of ablation studies. Later, a comparison with
+the most relevant state-of-art methods in the ﬁeld is per-
+formed. Finally, qualitative results showing the multi-device
+suitability of the method are presented.
+As KITTI annotations are available only in the ﬁeld of
+view of the camera, we perform our experiments on a BEV
+spanning 110◦ in front of the vehicle. Unless otherwise
+speciﬁed, we use a resolution of 0.05 m per cell and reach
+35 m in front of the vehicle. At test-time, we limit the input
+to a lateral range of ±20 m.
+A. Architecture Analysis
+As the features needed to perform detection on BEV are
+necessarily different than those in RGB, we investigate the
+effect of initializing the weights with a model pre-trained on
+ImageNet, as it is standard practice in RGB models. Table
+I shows the results. Despite the notable differences between
+both domains, RGB pre-trained weights improve the quality
+of the feature extractor.
+Table II
+shows how variations on different hyper-
+parameters affect the performance, measured as AP in BEV,
+on the validation set. We investigate different alternatives:
+1) With/without pool4. Removing the fourth pooling layer
+in the original VGG-16 architecture leads to more
+resolution on the ﬁnal feature map, thus improving the
+performance dramatically on the Pedestrian and Cyclist
+categories.
+2) With/without ground. Since points belonging to the
+ground plane apparently do not contribute to the de-
+tection task, we tested a setup where those points
+were removed before generating the BEV image. For
+this purpose, a height map algorithm was used, where
+the maximum difference in height between the points
+inside a cell is computed, and those cells whose values
+lay below a certain threshold are considered ground
+plane. Remarkably,
+the perfor-
+mance, as the point removal algorithm also deletes
+points belonging to horizontal surfaces of cars (e.g. the
+roof). Thus, important information about the objects is
+lost.
+this procedure hurt
+3) Number of orientation bins, Nb. This parameter sets in
+practice an upper bound for the accuracy of the orien-
+tation estimation. However increasing it also presents
+some problems; e.g. the reduction in the number of
+training samples per category. We experimented with
+Nb = 8 and Nb = 16, and found little difference
+between both alternatives.
+From now on, all results correspond to using the no-
+pool+ground+16bins variant of the network.
+B. Ablation Studies
+In order to analyze the relevance of the different data
+stored in the proposed BEV, the three different aforemen-
+tioned channels have been isolated into individual images,
+which have been used to train the network separately. As
+can be seen on Table III, the least relevant information set
+for our detection and classiﬁcation architecture corresponds
+to intensity values acquired by the LiDAR, as it might be
+expected due to many factors affecting reﬂectance measure-
+ments [22]. Besides, both the normalized density and the
+maximum height channels provide similar numbers, going
+well beyond those obtained using intensity information.
+Finally, the results produced when using the three-channel
+input image exhibit greater AP for all categories, proving
+their complementarity and, as a consequence, showing the
+positive effect of aggregating them.
+C. KITTI Benchmark
+To evaluate the performance of the proposed approach,
+results over the KITTI test set are provided in Table IV. For
+the purpose of a fair analysis, only a comparable method
+which uses a similar LiDAR projection to provide 3D
+Detections has been considered.
+As can be observed, although both approaches take a BEV
+image as input, only our method is able to perform detection
+and classiﬁcation for different categories. However, it can be
+noted that this major difference does not prevent BirdNet to
+rank better in all metrics and every difﬁculty level, being
+particularly signiﬁcant the gap in 3D and BEV, where our
+method offers more than 2x its performance. In addition, our
+method is considerably faster.
+Despite these notable results, by studying the recall at
+different Intersection over Union (IoU) threshold (see Fig.
+3 it can be observed that our numbers are heavily affected
+by the minimum threshold (0.7) required by the KITTI
+Benchmark. As can be seen, our method is able to locate
+more than 70% of vehicles in Moderate difﬁculty taking 0.5
+Fig. 3. Recall at different IoU thresholds using 300 proposals.
+as the minimum IoU. Similarly, our method is capable of
+detecting pedestrians very efﬁciently at lower IoU. On the
+contrary, it has some problems at cyclist detection.
+Based on these ﬁndings, Table V shows a detailed com-
+parison of our method against other state-of-the-art works
+providing 3D detections. In this case, the car category is
+studied at an IoU = 0.5, thus only works which have
+this information published have been considered. Results are
+given on the validation set, as labels for test set are not
+publicly available.
+As shown in the table, the results provided by our method
+are remarkable. Compared to VeloFCN, our approach has
+better performance both in 3D and BEV detection. Re-
+garding the other methods, our numbers are slightly lower
+in 3D detection and comparable to them in BEV, despite
+MV(BV+FV) uses different LiDAR projections as inputs,
+and F-PC CNN fuses LiDAR information with RGB. More-
+over, it is by far the method with the fastest execution time.
+D. Multi-device qualitative results
+To test the robustness of the proposed cell encoding for
+the BEV projection, experiments using LiDAR devices with
+different speciﬁcations have been conducted. Due to the lack
+of annotated datasets for these kinds of laser scanners, a
+unique model has been trained using labels from KITTI
+Benchmark. Hence, the same weights trained on a 64-layer
+LiDAR BEV are used for inference in lower resolution
+inputs. In order to show the effect of the data augmentation
+techniques described before, qualitative results are given for
+the full 360◦ horizontal ﬁeld of view. The source devices
+used for these experiments are: Velodyne VLP-16, HDL-32E
+with 16 and 32 respectively and very diverse vertical angle
+distributions. Results on HDL-64 data are shown in Fig. 4,
+as it is the LiDAR sensor used in the KITTI dataset.
+invariant
+As can be observed in Fig. 5, a notable performance is
+showcased on all tested laser inputs, despite their signiﬁcant
+differences. Thus, we can state that the information stored
+on the BEV cells is almost
+to the sparsity of
+the original point cloud. However, during experiments, it
+has been observed that the range at where detections are
+provided is directly related to the amount of cells containing
+information, which decreases with the distance. As a result,
+although the trained network is able to generalize a model
+for the different categories suitable to be used with different
+LiDAR devices, the detection range will be proportional to
+the resolution of the source device.
+BIRD EYE’S VIEW DETECTION PERFORMANCE (AP BEV) ON THE VALIDATION SET (%) FOR DIFFERENT VARIANTS.
+TABLE II
+ground Nb
+Car
+Pedestrian
+Yes
+Yes
+Yes
+No
+No
+No
+BIRD EYE’S VIEW DETECTION PERFORMANCE (AP BEV) ON THE VALIDATION SET (%) USING DIFFERENT DATA AS AN INPUT.
+TABLE III
+Intensity (R)
+Car
+Pedestrian
+COMPARISON OF THE BIRD EYE’S VIEW DETECTION PERFORMANCE WITH A COMPARABLE METHOD ON THE TEST SET (%).
+TABLE IV
+Class
+Method
+Car
+Ours
+Ours
+Ours
+COMPARISON OF THE BIRD EYE’S VIEW DETECTION PERFORMANCE WITH OTHER METHODS ON THE VALIDATION SET FOR CARS WITH IOU 0.5
+TABLE V
+Method
+Ours
+* Fuses RGB and LiDAR data.
+V. CONCLUSIONS
+In this work, we have presented BirdNet, an efﬁcient
+approach for 3D object detection in driving environments by
+adapting a state-of-art CNN framework to process LiDAR
+data in real-time, making it suitable for on-board operation.
+To the best of our knowledge, the approach presented in
+this paper is the ﬁrst to introduce pedestrians and cyclist
+detection using only BEV images as input. According to
+the results, the proposed detection framework has largely
+outperformed comparable single-class approaches, both in
+terms of accuracy and execution time.
+Additionally, the assessed multi-device capabilities of the
+proposed density normalization method, together with the
+aforementioned data augmentation techniques, will permit
+training models on already existing high-resolution laser
+datasets for latter deployment on lower resolution 360◦
+LiDAR setups more appropriate for commercial purposes.
+In future work, we plan to improve our method by
+including 3D anchors proposals into the RPN. Thus, no
+size assumptions will be required and 3D oriented bound-
+ing boxes will be obtained at inference stage. Moreover,
+we intend to extend the proposed BEV cell encoding by
+increasing the number of channels to store more information
+about the original point cloud, such as storing density at
+different height slices, so more discriminative features can
+be learned.
+Fig. 4. Framework results on KITTI Benchmark test set. From left to right: detections in RGB image, bird eye’s view projection, and 3D point cloud.
+[6] R. Girshick, “Fast R-CNN,” in Proc. IEEE International Conference
+[12] B. Li, “3d fully convolutional network for vehicle detection in point
+cloud,” in 2017 IEEE/RSJ International Conference on Intelligent
+Robots and Systems (IROS).
+[14] B. Li, T. Zhang, and T. Xia, “Vehicle detection from 3d lidar using
+fully convolutional network,” in Proceedings of Robotics: Science and
+Systems, AnnArbor, Michigan, June 2016.
+[15] S. L. Yu, T. Westfechtel, R. Hamada, K. Ohno, and S. Tadokoro,
+“Vehicle detection and localization on bird’s eye view elevation images
+using convolutional neural network,” in 2017 IEEE International
+Symposium on Safety, Security and Rescue Robotics (SSRR), Oct 2017,
+pp. 102–109.
+Fig. 5. Results obtained using different LiDAR devices in 360◦. From left
+to right: 3D estimated boxes in BEV and point cloud. Detections correspond
+to data from Velodyne VLP-16 (top) and HDL-32E (bottom).
+ACKNOWLEDGEMENT
+Research supported by the Spanish Government through
+the CICYT projects (TRA2015-63708-R and TRA2016-
+78886-C3-1-R), and the Comunidad de Madrid through
+SEGVAUTO-TRIES (S2013/MIT-2713). We gratefully ac-
+knowledge the support of NVIDIA Corporation with the
+donation of the GPUs used for this research.
+REFERENCES
+[1] S. Ren, K. He, R. Girshick, and J. Sun, “Faster R-CNN: Towards Real-
+Time Object Detection with Region Proposal Networks,” in Advances
+in Neural Information Processing Systems (NIPS), 2015.
+[21] C. Guindel, D. Martin, and J. M. Armingol, “Joint object detection and
+viewpoint estimation using CNN features,” in Proc. IEEE International
+Conference on Vehicular Electronics and Safety (ICVES), 2017, pp.
+145–150.

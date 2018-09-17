@@ -1,0 +1,628 @@
+Accurate Optical Flow via Direct Cost Volume Processing
+Jia Xu
+Ren´e Ranftl
+Intel Labs
+Vladlen Koltun
+Abstract
+We present an optical ﬂow estimation approach that op-
+erates on the full four-dimensional cost volume. This direct
+approach shares the structural beneﬁts of leading stereo
+matching pipelines, which are known to yield high accu-
+racy. To this day, such approaches have been considered
+impractical due to the size of the cost volume. We show that
+the full four-dimensional cost volume can be constructed in
+a fraction of a second due to its regularity. We then exploit
+this regularity further by adapting semi-global matching to
+the four-dimensional setting. This yields a pipeline that
+achieves signiﬁcantly higher accuracy than state-of-the-art
+optical ﬂow methods while being faster than most. Our ap-
+proach outperforms all published general-purpose optical
+ﬂow methods on both Sintel and KITTI 2015 benchmarks.
+1. Introduction
+Optical ﬂow estimation is a key building block of com-
+puter vision systems. Despite concerted progress, accurate
+optical ﬂow estimation remains an open challenge due to
+large displacements, textureless regions, motion blur, and
+non-Lambertian effects. Tellingly, the accuracy of lead-
+ing optical ﬂow algorithms is behind the accuracy achieved
+for the related problem of stereo matching. This is despite
+the close structural similarity of the two problems: stereo
+matching can be viewed as a special case of optical ﬂow.
+The most successful methods for stereo matching and
+optical ﬂow tend to follow different philosophies. Leading
+stereo methods treat the search space as a highly regular dis-
+crete structure and explicitly construct a complete represen-
+tation of this structure, known as the cost volume [29, 39].
+This enables the application of powerful global and semi-
+global optimization techniques that remove outliers and en-
+force coherence [16, 33]. In contrast, the cost volume for
+optical ﬂow is four-dimensional and its explicit construction
+and processing have until recently been considered infeasi-
+ble. For this reason, optical ﬂow methods commonly rely
+on nearest neighbor search [25, 3, 12, 2] and coarse-to-ﬁne
+analysis [28, 3].
+Recent work has indicated that operating on the com-
+Figure 1. Accuracy versus running time on the Sintel benchmark.
+We compare to the top-ranking published optical ﬂow methods.
+Our approach is signiﬁcantly more accurate, while maintaining a
+competitive running time.
+plete cost volume, `a la stereo, is in fact feasible and that the
+regular structure of this volume supports the use of global
+optimization techniques [7]. However, the computational
+requirements of this approach appeared to render it imprac-
+tical, due both to the construction of the cost volume and the
+optimization over it. It remained unclear whether we can
+translate the successful structure of state-of-the-art stereo
+processing pipelines to optical ﬂow without incurring se-
+vere computational penalties.
+In this paper, we show that an optical ﬂow algorithm can
+combine the convenience and accuracy of cost-volume pro-
+cessing with speed. Our work is based on learning an em-
+bedding into a compact feature space, such that matching
+scores between patches can be computed by inner products
+in this space. We show that the full four-dimensional cost
+volume can be constructed in a fraction of a second due
+to its regularity. We then exploit this regularity further by
+adapting semi-global matching [16] to the four-dimensional
+setting. Despite the size of the label space, its regularity ex-
+poses massive parallelism that can be harnessed to keep run-
+ning times down. Additional postprocessing is performed
+by ﬁtting homographies to image regions and using these to
+regularize the ﬂow ﬁeld.
+The resulting pipeline achieves the highest reported ac-
+curacy on the Sintel benchmark [6] while maintaining a
+competitive running time. Our approach also signiﬁcantly
+outperforms all published domain-agnostic optical ﬂow
+methods on the KITTI 2015 benchmark [24], reducing the
+Fl-all error by 29.5% relative to the best prior work (“Patch-
+Batch” at the time of submission). Figure 1 illustrates
+the accuracy and running time of our approach in com-
+parison to leading published methods. The presented ap-
+proach even outperforms some recent methods that use ad-
+ditional domain-speciﬁc semantic supervision during train-
+ing [31, 19], without using such additional supervision and
+at substantially lower running time.
+Optical ﬂow estimation has made signiﬁcant strides
+since its early days.
+In particular, the problem is largely
+solved when image motion is small [4, 32]. Recent work
+has therefore focused on the challenges brought up by large
+displacements [5]. Two speciﬁc challenges can be identi-
+ﬁed. First, patch appearance can change signiﬁcantly with
+large motion. Second, large motions induce a correspond-
+ingly large potential search space that must be taken into
+account when correspondences are established. Recent ad-
+vances in optical ﬂow estimation can be categorized by how
+these challenges are addressed.
+In estimating patch similarity, most approaches in the
+literature rely on hand-crafted matching functions and de-
+scriptors [5, 34, 25, 3, 7]. This had also been the case
+in stereo matching [17] until the recent popularization
+of matching functions based on convolutional networks
+[39, 22]. Such learned matching functions have recently
+been adopted for optical ﬂow estimation [12, 13, 2]. Like
+these recent works, we use a learned matching function.
+The second challenge is the large size of the search
+space. Many approaches use nearest neighbor search to re-
+strict the domain of the algorithm to sparse matches, albeit
+at the cost of regularity [25, 3, 12, 13, 2]. Another approach
+that bypasses cost volume construction is multi-scale anal-
+ysis of correspondence ﬁelds [3, 28]. We take a more direct
+tack and simply construct the cost volume. In this we are
+inspired by Full Flow, which demonstrated that the regular-
+ity of the four-dimensional cost volume affords signiﬁcant
+beneﬁts [7]. Our work demonstrates that cost volume pro-
+cessing is not antithetical to speed. Our approach achieves
+signiﬁcantly higher accuracy and is more than an order of
+magnitude faster than Full Flow [7]. Surprisingly, it is also
+faster than almost all aforementioned methods that avoid
+cost volume construction, in addition to being signiﬁcantly
+more accurate.
+A recent line of work trains neural networks to directly
+estimate optical ﬂow, stereo, and scene ﬂow [9, 23]. The
+end-to-end nature of this approach is appealing, and the
+trained networks are very fast. However, the networks
+employed in these works have tens of millions of param-
+eters, and consequently require a lot of external training
+data. In contrast, our network is very compact (112K pa-
+rameters) and is two orders of magnitude smaller than both
+FlowNetS and FlowNetC [9]. As a result, we were able to
+train our network from scratch using only the training data
+in each benchmark (Sintel and KITTI 2015, respectively),
+without dataset augmentation. Such compact networks are
+advantageous in practical deployment [14]. Furthermore,
+our pipeline is highly modular, and different components
+(matching, cost volume processing, postprocessing) can be
+readily analyzed and upgraded.
+Another recent family of methods takes advantage of
+domain-speciﬁc knowledge and combines optical ﬂow with
+semantic segmentation [31, 19, 2]. This is particularly rel-
+evant in the automotive domain, where human-annotated
+ground-truth semantic label maps are available alongside
+compatible optical ﬂow datasets.
+Such methods have
+yielded the highest accuracy to date on automotive datasets,
+but are limited in their generalization ability. As a symptom,
+these methods do not report results on the Sintel dataset.
+Our approach does not use semantic information and is ag-
+nostic to the domain. Nevertheless, it achieves higher accu-
+racy than some of the domain-speciﬁc methods in the auto-
+motive domain, while retaining generality.
+Following common recent practice, much of our pipeline
+operates on moderately downsampled images [7, 12, 13,
+25]. Speciﬁcally, feature extraction, cost volume construc-
+tion, and cost volume processing operate on images down-
+sampled by a factor of three in each dimension. After cost
+volume processing, the correspondence ﬁeld is upsampled
+to full resolution, then inpainted and reﬁned.
+Cost volume construction. Let I1 and I2 be two downsam-
+pled color images of resolution M ×N, represented as ma-
+trices in RM N×3. The images are additionally normalized
+to have zero mean and unit standard deviation. We begin by
+computing a d-dimensional feature vector for each pixel.
+Each image is processed by a convolutional network that
+produces feature vectors for all pixels jointly, yielding cor-
+responding feature space embeddings F1, F2 ∈ RM N×d.
+The four-dimensional cost volume is then populated by
+distances between pairs of feature vectors (f 1, f 2), where
+f 1 ∈ F1 and f 2 ∈ F2. A simple property of the Euclidean
+metric allows constructing the cost volume in parallel using
+highly efﬁcient vector products. This stage is described in
+Section 4.
+Cost volume processing. The cost volume produced in
+the previous stage can be directly used to estimate opti-
+cal ﬂow via winner-take-all assignment, without any further
+processing. Our experiments will demonstrate that this al-
+ready yields surprisingly good results. However, the cost
+volume can be processed to increase accuracy further by re-
+moving outliers and regularizing the estimated ﬂow. To this
+end, we use an adaptation of semi-global matching (SGM)
+to four-dimensional cost volumes. This adaptation retains
+the regular and parallel operation of original SGM and can
+thus be executed efﬁciently. This is described in Section 5.
+Postprocessing. We compute the forward ﬂow from I1 to I2
+and the backward ﬂow from I2 to I1 and remove inconsis-
+tent matches. The remaining matches are lifted to the orig-
+inal resolution, resulting in a semi-dense correspondence
+ﬁeld. We now use inpainting and variational reﬁnement to
+obtain a dense subpixel-resolution ﬂow ﬁeld. To this end,
+we combine the EpicFlow interpolation scheme [27] with
+a complementary scheme that segments the images based
+on low-level edge cues and ﬁts homographies to image seg-
+ments. These homographies assist in inpainting large oc-
+cluded regions. This is described in Section 6.
+4. Feature Embedding
+We learn a nonlinear feature embedding using a convo-
+lutional network [20]. Our goal is to embed image patches
+into a compact and discriminative feature space that is ro-
+bust to geometric and radiometric distortions encountered
+in optical ﬂow estimation. An additional requirement is that
+feature space embeddings as well as distances in this space
+can be computed extremely efﬁciently. This will allow rapid
+construction of the 4D cost volume. With these goals in
+mind, we design a small fully-convolutional network that
+embeds raw image patches into a compact Euclidean space.
+Parameterization. Our network has 4 convolutional layers.
+Each of the ﬁrst three layers uses 64 ﬁlters. Each convolu-
+tion is followed by a pointwise truncation max(·, 0) [26].
+All ﬁlters are of size 3×3. We do not stride, pool, or pad.
+The last layer uses d ﬁlters and their output is normalized
+to produce a unit-length feature vector f ∈ Rd such that
+(cid:107)f(cid:107)2 = 1.
+The network has a relatively small receptive ﬁeld of 9×9
+pixels, which has proven to be effective for stereo estima-
+tion [39]. Since this network operates on downsampled im-
+ages, as described in Section 3, the induced receptive ﬁeld
+in the original images is 27×27.
+The dimensionality d of the feature space poses a trade-
+off between its expressive power and the computational cost
+of computing distances in this space. We will show in Sec-
+tion 7 that a surprisingly low dimensionality supports highly
+discriminative embeddings.
+Training.
+network
+f : R9×9 → Rd
+into the
+feature space. Let θ be the parameters of the network. Let
+i , xp
+D = {(xa
+i , xn
+i )}i be a set of triplets of patches such that
+i is known to be more similar to xp
+xa
+i , for all i.
+convolutional
+input patches
+We
+a
+that embeds
+train
+To harvest the dataset D of training triplets, we use
+ground-truth optical ﬂow, which is assumed to be provided
+for a training set of image pairs. For each image pair, we
+randomly sample an anchor xa from the ﬁrst image and use
+the ground-truth ﬂow to obtain the corresponding positive
+patch xp in the second image. To obtain corresponding neg-
+ative examples xn, we randomly sample three patches in the
+second image at distances between 1 and 5 pixels from the
+center of xp. This yields three training triplets. This pro-
+cedure can be repeated to produce hundreds of millions of
+training triplets from standard optical ﬂow datasets.
+Training is performed using SGD with momentum 0.9.
+For efﬁciency, the dataset D is constructed online during
+training, by a parallel thread that continuously samples new
+triplets and constructs mini-batches that are passed on to
+the solver. We use a batch size of 30K triplets to balance
+the execution of the data generation thread and the solver.
+10K iterations are performed with a learning rate of 10−1,
+followed by 10K iterations with a learning rate of 10−2,
+followed by 20K iterations with a learning rate of 10−3. We
+do not use data augmentation or hard negative mining. The
+training set contains hard triplets by construction, since the
+positive and negative patches may be as little as one pixel
+apart.
+Cost volume construction. For testing, we take the advan-
+tage of the fully-convolutional nature of the network and
+compute a feature embedding for all pixels in an image in
+a single forward pass through the network. Since the fea-
+tures are normalized to unit length, the matching cost can
+be computed using vector products, as shown below. This
+enables highly efﬁcient cost volume construction.
+Recall that our input images are I1, I2 ∈ RM N×3. Let
+V ∈ RM N×2 be a ﬂow ﬁeld between I1 and I2. Let Vp
+be the ﬂow at pixel p ∈ [1, . . . , M N ]. We assume that the
+search space is discrete and rectangular. Speciﬁcally, we
+assume that Vp ∈ R2, where
+R = {−rmax,−rmax + 1, . . . , 0, . . . , rmax − 1, rmax}
+and
+Let
+F1, F2 ∈ RM N×d denote the feature space embeddings of
+whole images I1 and I2, respectively. Let C ∈ RM N×|R|2
+be the optical ﬂow cost volume. Every entry in C can be
+computed as
+the maximal
+displacement.
+rmax
+Here we take advantage of the connection between the Eu-
+clidean distance and the dot product. Since the feature vec-
+tors F1
+p+v are normalized,
+This allows us to populate the cost volume using vector
+products, which can be evaluated in parallel.
+It is easy to see that each entry in the cost volume can be
+computed in time O(d) and the cost volume as a whole can
+be constructed in time O(M NR2d) (without taking paral-
+lelism into account). The dimensionality d of the feature
+space thus has a direct effect on the computational cost of
+cost volume construction: reducing the dimensionality by
+an order of magnitude accelerates cost volume construction
+by an order of magnitude.
+5. Cost Volume Processing
+Recent work has shown that approximate global opti-
+mization over the full 4D cost volume can be performed us-
+ing parallelized message passing and nested distance trans-
+forms [7]. However, the cost of this approach is still pro-
+hibitive: minutes per image after optimization [7]. We
+develop an alternative solution based on SGM, a tech-
+nique that has been widely adopted in stereo process-
+ing [16]. SGM has become a common stand-in for more
+costly Markov random ﬁeld optimization in stereo process-
+ing pipelines, due to its robustness and parallelism. For
+example, it is a core part of the successful recent pipeline
+of ˇZbontar and LeCun, which signiﬁcantly advanced the
+state of the art in the area [39]. A strong connection be-
+tween SGM and full Markov random ﬁeld optimization is
+known, providing theoretical backing for what was origi-
+nally a heuristic [10].
+While restricted forms of SGM have been applied to op-
+tical ﬂow before [15, 2], we are not aware of work that
+shows that SGM is tractable, efﬁcient, and accurate when
+applied to the full four-dimensional cost volume. We now
+describe our adaptation of SGM, which we refer to as Flow-
+SGM. Let N (p) denote the set of spatial neighbors of pixel
+p. We adopt a simple 4-connected neighborhood structure.
+Deﬁne the discrete energy of the optical ﬂow ﬁeld V as
+where [·] denotes the Iverson bracket, and P1 and P p,q
+are
+regularization parameters. We set P1 to a ﬁxed constant
+value and set
+where the threshold T together with the constants P2 and Q
+are used to support edge-aware smoothing of the cost vol-
+ume. Energy (4) is similar to the classical deﬁnition of the
+SGM objective [16]. The difference is that the displacement
+Vp is two-dimensional rather than scalar. In turn the deﬁni-
+tion of the regularization terms is based on two-dimensional
+neighborhoods, which is reﬂected in the (cid:96)1-norm based dis-
+tance (cid:107)Vp − Vq(cid:107)1. The similarity to the classical SGM
+objective is intentional since this type of energy can be pro-
+cessed efﬁciently using scanline optimization, even in the
+case of 2D displacements.
+Flow-SGM approximately minimizes energy (4) by
+breaking the energy into independent paths, which can be
+globally minimized using dynamic programming. For each
+path, a cost Lr(p, Vp) is computed as
+where the contribution of the smoothness penalty S(p, Vp)
+is recursively computed as
+Here r denotes the direction of traversal of the path. Note
+that in contrast to classical SGM, the computation of the
+penalty for switching by one discretization step is com-
+puted over a two-dimensional neighborhood.
+In practice,
+multiple path directions r are used and the corresponding
+costs Lr(p, Vp) are accumulated into a ﬁltered cost volume
+L(p, Vp). We use the four cardinal path directions:
+two
+horizontal and two vertical. The ﬁnal optical ﬂow estimate
+is given by picking the ﬂow corresponding to the smallest
+cost in the ﬁltered cost volume for each pixel. We compute
+the ﬂow in both directions and use a consistency check to
+prune occluded or unreliable matches. The resulting high-
+quality matches are then passed on for postprocessing as
+described in the next section.
+We implemented Flow-SGM on the GPU to make use of
+the massive amount of parallelism inherent in the algorithm.
+Because of the size of the cost volume, economical use of
+memory is important. To this end, we rescale and bin the
+values C(p, Vp) to an 8-bit integer range. Since the max-
+imal value of L(p, Vp) is bounded [16], we can store the
+ﬁltered cost volume using 16 bits per entry.
+(a) Input images
+(b) Semi-dense matches
+(c) EpicFlow interpolation
+(d) Our postprocessing
+(e) Segmentation
+(f) Ground truth
+Figure 2. Postprocessing. (a) Superimposed input images. (b) Semi-dense matches provided as input to the postprocessing stage. (c) Dense
+and subpixel-resolution ﬂow ﬁeld produced by the EpicFlow interpolation scheme. (d) A ﬂow ﬁeld produced by our postprocessing stage,
+which incorporates homography-based inpainting. (e) Low-level segmentation used by our scheme. (f) Ground-truth ﬂow between the
+input images. (g,h) Error maps corresponding to (c) and (d).
+6. Postprocessing
+Our starting point for converting semi-dense correspon-
+dences into a fully dense ﬂow ﬁeld is the EpicFlow interpo-
+lation scheme [27], which is commonly used for this pur-
+pose [3, 7, 12, 13, 25]. EpicFlow uses locally-weighted
+afﬁne models to synthesize a dense ﬂow ﬁeld from semi-
+dense matches. We found that this scheme yields accurate
+results in areas where input matches are fairly dense, but
+is less reliable when large occluded regions must be ﬁlled.
+To address this, we develop a complementary interpola-
+tion scheme that greatly enhances inpainting performance
+in these regions.
+We make use of the fact that large segments of opti-
+cal ﬂow ﬁelds can be characterized by planar homogra-
+phies. This parameterization has been successfully applied
+in the context of scene ﬂow, motion stereo, and optical
+ﬂow [35, 37, 38]. The main challenge lies in identifying the
+extent of planar regions and making estimates robust and
+spatially consistent. Our key observation is that given high-
+quality semi-dense matches, it is relatively easy to identify
+these regions using the matches along with appearance in-
+formation.
+Our approach is based on a segmentation hierarchy com-
+bined with a greedy bottom-up ﬁtting strategy. We compute
+an ultrametric contour map (UCM) [1] using a fast bound-
+ary detector [8]. A key property of UCM is that threshold-
+ing the map at different levels induces a segmentation hier-
+archy. We create a two-level hierarchy by thresholding the
+UCM at levels t1 and t2, where t2 > t1. We then ﬁt homo-
+graphies to the semi-dense matches belonging to segments
+in the ﬁner level of the hierarchy using RANSAC [11]. We
+consider the homography a valid explanation for the ﬂow in
+the segment if its inlier set is sufﬁciently large. We further
+aggregate larger segments by considering segments at the
+coarse level to be candidates for homography inpainting if
+the amount of inliers in their children was sufﬁciently large.
+For each such higher-level segment, we again robustly ﬁt
+a homography and consider it valid if enough inliers are
+found.
+For each segment with a valid homography, we use this
+homography to extrapolate the optical ﬂow within the seg-
+ment. All other segments are inpainted using the EpicFlow
+scheme.
+Note that no semantic information is used. We rely on
+the same low-level edge cues as EpicFlow interpolation.
+As a consequence, our complementary inpainting scheme
+is just as broadly applicable. It adds little extra computation
+time but can greatly enhance the synthesized ﬂow ﬁeld in
+the presence of large occluded regions. This is illustrated in
+Figure 2 and will be evaluated in controlled experiments in
+Section 7.
+7. Experiments
+We evaluate the presented approach on the MPI
+Sintel [6] and KITTI 2015 [24] benchmarks. When report-
+ing experimental results, we refer to our approach as DC
+Flow. Feature computation, cost volume construction, and
+cost volume processing were implemented in OpenCL and
+evaluated on an Nvidia TITAN X GPU. Postprocessing is
+performed on an Intel Xeon E5-2699 CPU. Unless stated
+otherwise, a 64-dimensional feature embedding was used.
+MPI Sintel. MPI Sintel is a challenging dataset with large
+displacement, motion blur, and non-rigid motion [6]. The
+public training set consists of 23 sequences of up to 50 im-
+ages each. We randomly select 14 sequences from the ﬁ-
+nal rendering pass for training, and use the remaining 9 se-
+quences as a validation set.
+Table 1 compares our result to prior work on the ﬁnal
+pass of the test set. All errors are measured as average
+end-point error (AEPE). We use the 9 standard metrics [6],
+which evaluate the average EPE over different subsets of
+the image: all pixels, non-occluded pixels (noc), occluded
+pixels (occ), pixels within a given range of distances to the
+nearest occlusion boundary (d0-10, d10-60, d60-140), and
+pixels with a velocity in a given range (s0-10, s10-40, s40+).
+At the time of writing, our approach is ranked ﬁrst on the
+Sintel leaderboard. We outperform all competing methods
+on seven out of nine evaluation metrics, including the main
+all
+occ
+Table 1. Comparison to state-of-the-art optical ﬂow methods on the Sintel ﬁnal test set in terms of AEPE. At the time of writing, our
+approach is ranked ﬁrst on the Sintel leaderboard. We outperform competing methods on seven out of nine evaluation metrics, including
+the main one (all).
+Method
+Domain-
+agnostic
+Non-occluded pixels (%)
+Runtime
+Table 2. Comparison to state-of-the-art optical ﬂow methods on the KITTI 2015 test set. Our domain-agnostic approach outperforms prior
+such methods by a signiﬁcant margin, on both occluded and non-occluded pixels. The presented approach outperforms the most accurate
+prior method on the main Fl-all measure by 29.5%. For completeness, we list recent domain-speciﬁc methods at the top of the table. The
+presented approach outperforms two of these methods without using domain-speciﬁc information.
+one (all). Our approach performs particularly well in re-
+gions that undergo fast motion (s40+). Qualitative results
+on the validation set are shown in Figure 3.
+KITTI 2015. KITTI 2015 is an automotive dataset of road
+scenes [24].
+It contains 200 training images with semi-
+dense ground-truth ﬂow. We withheld 30 randomly selected
+images for validation and trained the feature embedding on
+the remaining 170 images.
+A comparison to prior work on the KITTI 2015 test set
+is provided in Table 2. Following the standard protocol on
+this dataset, we report the percentage of pixels with an EPE
+above 3 pixels. The table reports the standard measures on
+this dataset: error over the static background (Fl-bg), error
+on dynamic objects (Fl-fg), and error over all pixels (Fl-
+all). The three measures are reported for all pixels as well
+as non-occluded pixels. The primary evaluation measure is
+Fl-all over all pixels. Our approach yields an error of 14.86
+according to this measure, which is 29.5% lower than the
+most accurate prior domain-agnostic method (PatchBatch).
+On non-occluded regions we outperform the most accurate
+domain-agnostic method (DiscreteFlow) by 9.5%, which
+indicates that our approach derives its advantage from both
+better matches and a better inpainting procedure. Our ap-
+proach is particularly accurate in background regions and
+delivers competitive performance in foreground regions.
+For completeness, Table 2 (top) lists the performance
+of recent methods that use additional domain-speciﬁc se-
+mantic information to enhance their optical ﬂow estimates.
+These methods are expected to perform better than domain-
+agnostic approaches on this benchmark, at the cost of gen-
+erality. Nevertheless, our approach outperforms two of
+these recent methods and is only surpassed by one domain-
+speciﬁc pipeline [2], without using domain-speciﬁc infor-
+mation. Example results on the validation set can be seen in
+Figure 4.
+Ablation study. We conduct experiments on the validation
+sets of both Sintel and KITTI 2015 to evaluate the contribu-
+tion of different components of the presented approach. For
+all experiments we provide results for two different settings
+of the effective search range: a fast version (rmax = 100)
+and an accurate version (rmax = 242). We report AEPE
+over all pixels for Sintel and percentage of wrongly matched
+Figure 3. Qualitative results on three images from the Sintel training set. From top to bottom: superimposed input images, ground-truth
+ﬂow, optical ﬂow computed by the presented approach, corresponding EPE maps, and color code of the EPE maps.
+pixels in occluded and non-occluded regions for KITTI.
+We ﬁrst conduct a controlled experiment to demonstrate
+the effectiveness of the learned feature embedding. We use
+a feature dimensionality of d = 64 and construct the cost
+volume as described in Section 4. To isolate the learned
+feature embedding from the rest of the presented pipeline,
+we pass the constructed cost volume to Full Flow [7]. This
+replaces the classical NCC matching function used in that
+work by our learned feature embedding, while keeping
+the rest of that pipeline ﬁxed. The results are reported
+in Table 3 (top). Our feature embedding (Ours+FullFlow)
+yielded consistently lower error than the classical NCC cost
+(NCC+FullFlow), on both datasets.
+Next, we focus on the cost volume processing and
+postprocessing, presented in Sections 5 and 6. The re-
+sults are reported in Table 3 (bottom). The matches pro-
+vided by our cost volume are sufﬁciently accurate for
+naive winner-takes-all selection with no cost volume pro-
+cessing (Ours+WTA) to yield respectable accuracy, ap-
+proaching the complete Full Flow pipeline, which includes
+global optimization.
+(In the Ours+WTA condition, 97%
+of the running time is consumed by EpicFlow interpola-
+tion.) Adding Flow-SGM to our pipeline (Ours+SGM) fur-
+ther increases accuracy and even surpasses the correspond-
+ing Ours+FullFlow variants reported at the top of the table.
+Adding homography-based inpainting in the postprocessing
+stage (Ours+SGM+H) maintains high accuracy on Sintel
+and signiﬁcantly improves accuracy on KITTI. The differ-
+ence in the effect of the postprocessing stage on the two
+benchmarks is not surprising given the mostly rigid nature
+of KITTI scenes, which makes them particularly amenable
+to homography ﬁtting.
+The inﬂuence of feature dimensionality is shown in Ta-
+ble 4. Surprisingly, feature embedding with dimensionality
+as low as 10 performs remarkably well and could be used in
+Method
+NCC+FullFlow (fast)
+NCC+FullFlow (acct)
+Ours+FullFlow (fast)
+Ours+FullFlow (acct)
+Ours+WTA
+Ours+SGM (fast)
+Ours+SGM (acct)
+Ours+SGM+H (acct)
+Table 3. Controlled experiments that evaluate the contribution of
+different components of the presented approach. Top: evaluation
+of the learned feature embedding. Bottom:
+the effect of Flow-
+SGM and homography-based inpainting.
+Figure 4. Qualitative results on three images from the KITTI 2015 training set. From top to bottom: superimposed input images, optical
+ﬂow computed by the presented approach, corresponding error maps, and color code for error maps. Colors indicate error thresholds.
+Figure 5. Failure cases. An example from the KITTI 2015 dataset
+on the left, an example from Sintel on the right.
+practice.
+A breakdown of the running time for each component
+of the presented approach is shown in Table 5. Cost vol-
+ume construction is nearly real-time (80 milliseconds for
+both directions) in the ‘fast’ condition and is still extremely
+rapid (260 milliseconds) in the ‘accurate’ condition. In the
+‘fast’ condition, the running time is dominated by EpicFlow
+inpainting (84% of the runtime). (Homography inpainting
+is not used in this condition.) In the ‘accurate’ condition,
+cost volume processing takes roughly 1
+3 of the total running
+time and postprocessing consumes the other 2
+3.
+Dimension
+Table 4. Effect of the feature dimensionality on accuracy.
+Feature extraction
+Cost volume (fwd + bwd)
+SGM (fwd + bwd)
+EpicFlow
+Homography inpainting
+Total
+accurate
+Table 5. Running time for each component of the presented ap-
+proach (seconds).
+Finally, some failure cases are shown in Figure 5. On
+Sintel, failure cases are typically due to dramatic occlusion,
+strong motion blur or large motion of untextured objects.
+On KITTI, most failure cases are due to shading and over-
+exposed regions.
+8. Conclusion
+We have presented an optical ﬂow estimation approach
+that directly constructs and processes the four-dimensional
+cost volume. We have shown that, contrary to widespread
+belief, a highly accurate cost volume can be constructed in
+a fraction of a second. To this end, we use a learned fea-
+ture embedding. The constructed cost volume is processed
+using an efﬁcient adaptation of semi-global matching to the
+four-dimensional setting. Our approach is rooted in clas-
+sical stereo estimation approaches that have been widely
+deployed and thoroughly tested in the ﬁeld. Our work
+makes a step towards unifying optical ﬂow and stereo es-
+timation, which have hitherto been separated by computa-
+tional considerations despite the structural similarity of the
+problems. Our approach combines high accuracy with com-
+petitive runtimes, outperforming prior methods on standard
+benchmarks by signiﬁcant margins.
+References
+[1] P. Arbel´aez. Boundary extraction in natural images using
+[11] M. A. Fischler and R. C. Bolles. Random sample consen-
+sus: A paradigm for model ﬁtting with applications to image
+analysis and automated cartography. Communications of the
+ACM, 24(6), 1981. 5
+[15] S. Hermann and R. Klette. Hierarchical scan-line dynamic
+programming for optical ﬂow using semi-global matching.
+In ACCV Workshops, 2012. 4
+[16] H. Hirschm¨uller. Stereo processing by semiglobal matching
+[24] M. Menze and A. Geiger. Object scene ﬂow for autonomous
+[29] D. Scharstein and R. Szeliski. A taxonomy and evaluation of
+IJCV,
+[30] M. Schultz and T. Joachims. Learning a distance metric from

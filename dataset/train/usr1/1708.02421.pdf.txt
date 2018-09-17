@@ -1,0 +1,647 @@
+FoveaNet: Perspective-aware Urban Scene Parsing
+Xiaohui Shen5 Zhe Lin5 Qiang Chen6 Shuicheng Yan2,6 Jiashi Feng2
+1 Department of EE, Tsinghua University, 2 Department of ECE, National University of Singapore
+3 Tencent AI Lab 4 University of Trento 5 Adobe Research 6 360 AI institute
+{lixincn2015,zequn.nus}@gmail.com wei.wang@unitn.it lcs@ocrserv.ee.tsinghua.edu.cn
+{jimyang,xshen,zlin}@adobe.com {chenqiang-iri,yanshuicheng}360.cn elefjia@nus.edu.cn
+Abstract
+Parsing urban scene images beneﬁts many applications,
+especially self-driving. Most of the current solutions employ
+generic image parsing models that treat all scales and loca-
+tions in the images equally and do not consider the geome-
+try property of car-captured urban scene images. Thus, they
+suffer from heterogeneous object scales caused by perspec-
+tive projection of cameras on actual scenes and inevitably
+encounter parsing failures on distant objects as well as
+other boundary and recognition errors.
+In this work, we
+propose a new FoveaNet model to fully exploit the perspec-
+tive geometry of scene images and address the common fail-
+ures of generic parsing models. FoveaNet estimates the per-
+spective geometry of a scene image through a convolutional
+network which integrates supportive evidence from contex-
+tual objects within the image. Based on the perspective ge-
+ometry information, FoveaNet “undoes” the camera per-
+spective projection — analyzing regions in the space of the
+actual scene, and thus provides much more reliable pars-
+ing results. Furthermore, to effectively address the recogni-
+tion errors, FoveaNet introduces a new dense CRFs model
+that takes the perspective geometry as a prior potential. We
+evaluate FoveaNet on two urban scene parsing datasets,
+Cityspaces and CamVid, which demonstrates that FoveaNet
+can outperform all the well-established baselines and pro-
+vide new state-of-the-art performance.
+1. Introduction
+Urban scene parsing is a heated research topic that ﬁnds
+application in many ﬁelds, especially self-driving. It aims
+to predict the semantic category for each pixel within a
+scene image captured by car mounted cameras, which en-
+ables self-driving cars to perform reasoning about both the
+overall scene background and the individual objects moving
+in front of the cars.
+Recent progress in urban scene parsing is mostly driven
+by the advance of deep learning. Deep convolutional neu-
+Figure 1: Illustration of our motivation. Top two rows: a scene
+image with perspective geometry and its two zoomed-in regions.
+Bottom two rows: typical failures in urban scene parsing. Left:
+“broken-down” error on objects of large scales (the bus). Right:
+boundary errors on objects of small scales.
+ral network (CNN) based parsing algorithms [25, 21] have
+demonstrated remarkable performance on several semantic
+parsing benchmarks [7, 5, 24]. However, directly apply-
+ing the generic CNN based image parsing models usually
+leads to unsatisfactory results on urban scene images for
+self-driving cars, since they ignore the important perspec-
+tive geometry of scene images.
+As captured by ego-centric cameras, perspective projec-
+tion from actual scenes to the image plane changes the ob-
+ject scales: a nearby car seems much bigger than a car far
+away, even though they have the same scale in reality. The
+top row in Figure 1 illustrates such a perspective geome-
+try structure within a scene image. Generic parsing models
+do not take such heterogeneous object scales into consider-
+ation. Consequently, they do not perform well on parsing
+distant objects (of small scales), and boundary and recog-
+nition errors are introduced. See the parsing result marked
+with the small box in Figure 1. In addition, objects that are
+near to the camera and usually distributed within the pe-
+ripheral region have relatively large scales. Generic parsing
+models tend to “break down” a large-scale object into sev-
+eral pieces of similar classes, as shown in the parsing result
+marked with the big box in Figure 1. Both of the above
+problems are from ignoring the perspective geometry.
+Therefore, we propose a novel FoveaNet to handle het-
+erogeneous scales in urban scene parsing by considering the
+perspective geometry. FoveaNet works like the fovea of hu-
+man eyes:
+the center of the vision ﬁeld (fovea region) is
+focused on and the visual acuity is the highest. Through lo-
+calizing “the fovea region” during parsing, FoveaNet “un-
+does” the camera perspective projection by scale normaliza-
+tion and parses regions at suitable scales.
+Speciﬁcally, FoveaNet employs a perspective estimation
+network to infer the overall perspective geometry and output
+dense perspective scores for each individual pixel, indicat-
+ing the nearness of a pixel to the vanishing point. Objects
+with large perspective scores are usually small in the pro-
+jected scene image. To address the unsatisfactory perfor-
+mance on parsing distant objects, FoveaNet performs scale
+normalization on the fovea region that consists of small-
+scale objects. Then the parsings of small distant objects
+and large near objects are untangled by a perspective-aware
+parsing scene network, and boundary errors induced by
+small scale objects are reduced.
+To address the “broken-down” issues with parsing large
+objects, FoveaNet employs a new perspective-aware dense
+CRFs model that takes as input the perspective information
+and outputs different potentials on the pixels of different
+perspective scores. The proposed CRFs smooths the pix-
+els from distant objects with large perspective scores more
+slightly than on the large objects. Through this adaptive
+strategy, the proposed CRFs are able to handle the “broken-
+down” errors and meanwhile avoid over-smoothing on
+small objects. We evaluate the proposed FoveaNet on two
+challenging datasets, Cityspaces and CamVid, and prove
+that it can provide new state-of-the-art performance on ur-
+ban scene parsing problems. We make following contribu-
+tions to urban scene parsing:
+• We propose to consider perspective geometry in urban
+scene parsing and introduce a perspective estimation
+network for learning the global perspective geometry
+of urban scene images.
+• We develop a perspective-aware parsing network that
+addresses the scale heterogeneity issues well for urban
+scene images and gives accurate parsing on small ob-
+jects crowding around the vanishing point.
+• We present a new perspective-aware CRFs model that
+is able to reduce the typical “broken-down” errors in
+parsing peripheral regions of a scene image.
+2. Related Work
+Semantic Parsing Recently, deep learning has greatly
+stimulated the progress on parsing tasks.
+Among
+CNN based algorithms, the Fully Convolutional Network
+(FCN) [25] and the DeepLab model [21] have achieved
+most remarkable success. Afterwards, various approaches
+have been proposed to combine the strengths of FCN and
+CRFs [39, 23], or to reﬁne predictions by exploiting fea-
+ture maps output by more bottom layers [28, 11]. A com-
+mon way to deal with scale issues in parsing is to zoom
+in the input images [9, 27, 6, 22, 4]. The input images
+are rescaled to multiple scales and processed by a shared
+deep network [6, 22, 4]. More recently, Xia et al. [34] ad-
+dressed the scale issues in the scenario of object parsing
+by “zoom and reﬁne”. However, it is not suitable for ur-
+ban scene parsing. Our FoveaNet differs from end-to-end
+trained attention models which learn black-box localization
+functions [31, 35, 26, 17].
+Instead, FoveaNet explicitly
+models the visible geometry structure for fovea region lo-
+calization and better ﬁts the urban scene parsing task.
+Perspective Geometry in Urban Scenes As 3D per-
+spective geometry is a key property of urban scene im-
+ages, several works consider modeling 3D geometric in-
+formation as an additional feature for scene understand-
+ing [33, 19, 14, 15, 38]. Sturgess et al. [33] made use of ge-
+ometric features in road scene parsing, which are computed
+using 3D point clouds. Hoiem et al. [14] modeled geometric
+context through classifying pixels into different orientation
+labels. Some others infer proper object scales with perspec-
+tive geometry [15, 38, 19]. For example, Hoiem et al. [15]
+established the relationship between camera viewpoint and
+object scales, and used it as a prior for an object proposal.
+Ladicky et al. [19] trained a classiﬁer with hand-crafted fea-
+tures to jointly solve semantic parsing and depth estimation.
+Training samples are transformed into the canonical depth,
+due to the observation that performance is limited by the
+scale misalignment due to the perspective geometry. All of
+the methods above are based on hand-crafted features rather
+than deep learning.
+3. The Proposed FoveaNet
+3.1. Overview
+The basic idea of FoveaNet is estimating the perspec-
+tive geometry of an urban scene image and parsing regions
+at suitable scales, instead of processing the whole image
+at a single scale. The overall architecture of FoveaNet
+is illustrated in Figure 2. The FoveaNet consists of two
+components, i.e., the perspective-aware parsing net and the
+perspective-aware CRFs.
+The perspective-aware parsing net aims at better pars-
+ing small scale objects crowding around the vanishing point
+by exploiting the image inherent perspective geometry. We
+propose a perspective estimation network (PEN) to estimate
+the perspective geometry by predicting a dense perspective
+heatmap, where a pixel of an object nearer to the vanishing
+point would have a larger value. Thus PEN provides clues
+Figure 2: Architecture overview of FoveaNet. FoveaNet consists of a perspective-aware parsing network and perspective-aware CRFs.
+With the perspective estimation network (PEN), FoveaNet infers the global perspective geometry by producing a heatmap. Based on the
+perspective heatmap, FoveaNet localizes a fovea region (cyan rectangle) where small distant objects crowd. FoveaNet performs scale
+normalization on the fovea region, on which it produces a ﬁner parsing via the Fovea branch. This result is then fused with the parsing
+from a coarse branch into the ﬁnal prediction. The perspective-aware CRFs take input the fused parsing result, the perspective heatmp as
+well as object detection results, and output the ﬁnal parsing result. Best viewed in color.
+to locate a fovea region within which most small scale ob-
+jects crowd. The fovea region is then re-scaled and receives
+ﬁner processing by the parsing net, i.e. a two-branch FCN.
+In this way, small distant objects are untangled from large
+near objects for parsing.
+The perspective-aware CRFs aim at addressing “broken-
+down” errors when parsing the peripheral region of a scene
+image. Within this new CRFs model, we introduce a spa-
+tial support compatibility function that incorporates the per-
+spective information from PEN, and facilitates the parsing
+by imposing adaptive potentials at different locations with
+different perspective heatmap scores. Only the regions con-
+ﬁdently from the same object are processed by the CRFs.
+Small distant objects will be smoothed in a lighter way than
+the large near objects. The “broken-down” errors in periph-
+eral regions can be alleviated effectively. We now proceed
+to introduce each component of FoveaNet, respectively.
+3.2. FCN in FoveaNet
+FoveaNet
+is based on the fully convolutional net-
+work (FCN) [25] for parsing the images. As a deeper CNN
+model beneﬁts more for the parsing performance, we here
+follow Chen et al. [3] and use the vanilla ResNet-101 [13]
+to initialize the FCN model in FoveaNet. We observe that
+preserving high spatial resolution of feature maps is very
+important for accurately segmenting small objects within
+scenes. Therefore, we disable the last down-sampling layer
+by setting its stride as 1. This increases the size of the fea-
+ture map output by res5 c to 1/16 of the input image size
+(without this modiﬁcation the size of the output feature map
+is only 1/32 of the input image size).
+3.3. Perspective-aware Scene Parsing Network
+FoveaNet localizes the fovea region with proper scales
+and concentrates on the localized fovea region to normalize
+Figure 3: Architectural overview of the perspective estimation
+network (PEN). PEN has a similar network structure as the FCN.
+Given an input scene image, PEN produces a one channel heatmap
+indicating (roughly) the nearness to the vanishing point at pixel-
+level.
+the various object scales. To this end, a perspective estima-
+tion network is used to estimate the overall perspective ge-
+ometry of a scene image and localize the region (roughly)
+centered at the vanishing point where most of small scale
+objects crowd. PEN then works together with a two-branch
+FCN as a perspective-aware scene parsing network.
+Training PEN PEN has a same structure as the baseline
+FCN model, as shown in Figure 3. Our ground truth takes
+the form of a heatmap: a larger value in the heatmap indi-
+cates a higher possibility of small objects to crowd. As it
+is not easy to estimate the vanishing point of a scene image
+correctly (sometimes the vanishing point may be invisible
+or not exist in the image), we use the object scale as a clue
+to roughly estimate the position of the vanishing point and
+the perspective geometry.
+For
+training PEN, we formulate the ground truth
+heatmap of an image as follows:
+sults are not discriminative for localizing distant objects. In
+contrast, PEN can produce a heatmap with distinguishable
+per-pixel scores, leading to more precise fovea region local-
+ization. Therefore, we use the method introduced above to
+estimate the perspective geometry and train PEN. A quali-
+tative comparison between predicted depth [10] and our es-
+timated perspective heatmap on Cityscapes dataset is pro-
+vided in supplementary material.
+Perspective-aware Scene Parsing FoveaNet performs
+scale normalization to achieve better parsing performance
+on objects of heterogeneous scales. After localizing the
+fovea region, FoveaNet parses the fovea region and the raw
+image separately through a two-branch FCN, as shown in
+Figure 2. The raw input image passes through the coarse
+branch to produce an overall parsing result. Meanwhile,
+the fovea region is re-scaled to the original input size and
+passes through the fovea branch to produce ﬁner parsing
+for the fovea region. The two branches have the same struc-
+ture as the baseline FCN model and share parameters from
+conv1 to res3 3b3. More architectural details are given in
+Section 3.2. The two-branch FCN is end-to-end trainable
+by minimizing per-pixel cross-entropy loss.
+3.4. Perspective-aware CRFs
+The perspective-aware scene parsing network can parse
+the distant objects better by estimating perspective informa-
+tion. However, another common issue in parsing scene im-
+ages is that large objects in peripheral regions of a scene im-
+age usually suffer from “broken-down” errors, i.e., a large
+object tends to be broken into several small pieces which are
+misclassiﬁed into different yet similar classes. This problem
+is illustrated in the bottom left subﬁgure of Figure 1: some
+parts of the bus are misclassiﬁed into the train, harming the
+parsing performance on the peripheral region.
+Intuitively, it would be beneﬁcial for the ﬁnal perfor-
+mance to reﬁne the prediction with the aid of appearance
+features. In object segmentation, dense CRFs are usually
+applied to the prediction scores produced by FCN, and
+have shown impressive effects on reﬁning prediction. How-
+ever, directly applying dense CRFs to urban scene images
+does not give satisfactory performance due to heteroge-
+neous scales of objects from the fovea region and the pe-
+ripheral region. A dense CRFs model performing well on
+the peripheral region tends to over-smooth the predictions
+on small objects from the fovea region, which harms the
+performance on small objects signiﬁcantly.
+Based on the perspective information from PEN, we pro-
+pose a new perspective-aware dense CRFs model to allevi-
+ate “broken-down” errors. The CRFs model is trained sepa-
+rately, following the DeepLab model [21]. Let (cid:96) denote the
+label vector for all the pixels, fi denote the learned repre-
+sentation of the pixel i, and pi denote the 2D-coordinate of
+Figure 4: Illustration of perspective heatmap estimation. (a) An
+urban scene image. (b) Parsing ground truth. (c) Ground truth per-
+spective heatmap generated by Eqn. (1). (d) Estimated perspective
+heatmap and detected Fovea region from PEN. Fovea region with
+maximal response is highlighted in cyan. Best viewed in color.
+In the above equation, m denotes an object instance in the
+n-th image, and i indexes a pixel from this instance. (cid:96)m de-
+notes the category label of instance m. AveSize((cid:96)(m)) de-
+notes the category-level average instance size. Thus H (n)
+,
+i.e. the value of pixel i in the n-th heatmap H (n), depends
+on the ratio of the category-level average instance size over
+the current instance size Size(m). Global perspective score
+prior Gi for the i-th pixel is the average value over all the N
+heatmaps. The ground truth V (n)
+for training PEN is for-
+mulated by weighted summing both the image speciﬁc char-
+acteristics H (n)
+and the global average Gi, being traded-off
+by a parameter δ.
+PEN is trained by minimizing a smoothed (cid:96)1 loss [12]
+between the produced heatmap based on raw images and the
+ground truth heatmap. Figure 4 illustrates the result of PEN.
+Figure 4 (a) shows a training urban scene image with per-
+spective geometry and Figure 4 (b) shows its ground truth
+parsing map. We follow Eqn. (1) to obtain the ground truth
+perspective conﬁdence map shown in Figure 4 (c). From
+the perspective map estimated by PEN (Figure 4 (d)), one
+can observe that PEN successfully predicts the overall ge-
+ometry of the input image — it outputs larger values for the
+pixels closer to the vanishing point.
+With this perspective heatmap, FoveaNet localizes the
+fovea region with maximal response (highlighted with cyan
+rectangle).
+In our experiments, we deﬁne the size of the
+fovea region as 1/2 of the heatmap size. To locate the fovea
+region based on the heatmap, FoveaNet passes the heatmap
+from PEN through an average pooling layer. The receptive
+ﬁeld of the maximal pooling result on the heatmap is se-
+lected as the fovea region, as illustrated by the cyan boxes
+in Figure 2 and Figure 4 (d).
+Discussion Another choice for estimating perspective in-
+formation is to estimate depth information from a single im-
+age [10, 8]. However, the single image depth prediction re-
+the pixel i in the image plane. The energy function of the
+perspective-aware dense CRFs is deﬁned as
+where the kernel κ(·,·) is the contrast-sensitive two-kernel
+potential proposed by Krahenbuhl et al. [18], and ν is
+the Potts label compatibility function. Here µ is a new
+spatial support compatibility function introduced for the
+perspective-aware CRFs that considers auxiliary object de-
+tection results and perspective information provided by
+PEN:
+The object bounding boxes are detected by a Faster-
+RCNN [29] model. Among them, some bounding boxes
+Bk, k = 1, 2...K contain the pixels pi,pj. Then the box
+Bk with the maximum detection score dk is selected as
+the target one. Here (cid:98)V denotes the estimated heatmap,
+and m, n index pixels from the estimated heatmap (cid:98)V and
+bounding box Bk respectively. This µ(pi, pj) incorporates
+perspective information as follows. It lowers the weights
+of the pairwise potential at a bounding box with higher
+heatmap values. Thus for a small object with a high per-
+spective score, the pairwise potential becomes small (im-
+posing lighter spatial smoothing), and the unary potential
+plays a major role. By focusing on each detection pro-
+posal with adaptive perspective weights, the proposed CRFs
+model effectively alleviates the “broken-down” problems
+and meanwhile avoids over-smoothing the details.
+4. Experiments
+4.1. Experimental Settings
+We implement FoveaNet using the Caffe library [16]
+and evaluate its performance on two urban scene parsing
+datasets: Cityscapes [5] and Camvid [2]. For performing
+ablation studies on FoveaNet, we employ a vanilla FCN ar-
+chitecture with ResNet-101 being its front-end model as the
+baseline. It takes raw images as inputs and is trained with
+per-pixel cross-entropy loss. During testing, it produces
+parsing results at a single scale. We examine how its perfor-
+mance changes by incorporating different components from
+FoveaNet, in order to understand the contribution of each
+component. FoveaNet is initialized by a modiﬁed ResNet-
+101 network pre-trained on ImageNet (see Section 3.2 for
+more details). We ﬁne-tune the initial model on an individ-
+ual scene parsing dataset. The initial learning rate is 0.001,
+and is decreased by a factor of 0.1 after every 20 epochs for
+twice. The momentum is 0.9.
+4.2. Results on Cityscapes
+The Cityscapes dataset [5] is a recently released large-
+scale benchmark for urban scene parsing.
+Its images are
+taken by car-carried cameras and are collected in streets of
+50 different cities. It contains in total 5,000 images with
+high quality pixel-level annotations. These images are split
+to 2,975 for training, 500 for validation and 1,525 for test-
+ing. Cityscapes provides annotations at two semantic gran-
+ularities i.e., classes and higher-level categories. Annota-
+tions can be divided into 30 classes and 8 higher-level cate-
+gories. For instance, the classes of car, truck, bus and other
+3 classes are grouped into the vehicle category. Among
+them, 19 classes and 7 categories are used for evaluation.
+Our FoveaNet is trained on 2,975 training images, and eval-
+uated on the validation set. Then we add 500 validation im-
+ages to ﬁne-tune our model and obtain the test performance.
+Following the provided evaluation protocol with the
+dataset [5], we report the performance of compared mod-
+els in terms of four metrics i.e. IoUclass, IoUcategory, iIoUclass
+and iIoUcategory. Compared with the standard IoUclass and
+IoUcategory, the latter two IoU metrics put more emphasis on
+the performance on small scale instances. The resolution of
+images is 2048× 1024, which brings a challenge to training
+deep networks with limited GPU memory. Hence, we use
+a random image crop of 896 × 896 in training. For build-
+ing the perspective-aware CRFs model, we train a Faster-
+RCNN on Cityscapes with 8 classes whose ground truth
+bounding boxes can be derived from instance annotations,
+including truck, bus, motorcycle.
+Perspective Distortion We now quantitatively analyze
+how much perspective distortion affects urban scene pars-
+ing and demonstrate perspective distortion is a severe is-
+sue for urban scene parsing. We evaluate the baseline FCN
+model (trained on the whole images) on two image sets:
+one contains only the central region and the other contains
+only the peripheral region, as illustrated in Figure 5. Ta-
+ble 2 shows a detailed comparison between these two im-
+age sets on Object and Vehicle category, which consist of
+3 and 4 classes respectively. First, we ﬁnd that the perfor-
+mance on the Object category in the central region is much
+worser than in the peripheral region. More concretely, we
+ﬁnd that the IoUcategory of Object drops 10.6% in the central
+region. This performance drop comes from the small object
+scales in the center region caused by perspective distortion.
+This problem can also be observed from parsing results in
+Figure 5. The parsing in the central region lacks enough de-
+tails. Second, generic parsing models tend to “break down”
+a large-scale object into several pieces of similar classes, as
+illustrated in Figure 5. We can observe from Table 2 that
+the IoUCategory of Vehicle improves 2.7%, but corresponding
+IoUClass deteriorates largely in the peripheral region. This
+can be largely attributed to misclassiﬁcation between ﬁne-
+Table 1: Performance comparison among several variants of FoveaNet on the Cityscapes validation set. The metric of iIoU is not
+applicable for categories of road to bicycle. Best viewed in color.
+FCN Baseline
++ ﬁxed fovea region
++ PEN fovea region
++ PEN fovea region
+& normal CRFs
++ PEN fovea region
+& depth-aware CRFs
++ PEN fovea region
+& persp-aware CRFs
+Figure 5: Typical parsing result of baseline FCN model. We eval-
+uate FCN on peripheral and central region respectively, to analyze
+how much a perspective distortion affects urban scene parsing.
+Table 2: Comparison on Object and Vehicle category between
+peripheral and central regions.
+Region
+peripheral
+IoUcategory
+IoUClass
+IoUcategory
+IoUClass
+object
+pole
+tr. light
+tr. sign
+vehicle
+car
+truck
+bus
+train
+grained classes, which is reﬂected by the IoUClass metric.
+Objects in the peripheral region have an unbalanced larger
+scale due to perspective distortion. The performance drop
+on Vehicle category is brought by the “broken-down” issue.
+Ablation Analysis We now analyze FoveaNet by inves-
+tigating the effects of each component separately. Ta-
+ble 1 lists the performance of adding each component of
+FoveaNet to the baseline model (vanilla FCN) on the valida-
+tion set. We also give a qualitative comparisons in Figure 6.
+From the results, we can make following observations.
+Perspective-aware Parsing: The 2nd row in Figure 6
+shows that PEN successfully estimates the global perspec-
+tive geometry.
+In the heatmap, small scale objects have
+larger response values (brighter). We compare the fovea re-
+gion estimated by PEN (yellow rectangle) with a pre-ﬁxed
+fovea region estimated from the global average (red rect-
+angles; ref. Eqn. (1)). Comparing these two fovea regions
+shows PEN better localizes the regions covering small ob-
+jects and is adaptive to different images. For example, the
+leftmost image presents a road turning left and thus small
+scale objects crowd in the left panel. PEN effectively lo-
+cates this region but the globally ﬁxed one fails.
+We also quantitatively compare the beneﬁts of these
+two fovea region localization strategies in Table 1 (+ ﬁxed
+fovea region vs. + PEN fovea region). One can observe
+that relying on the fovea regions provided by PEN signif-
+icantly performs better by a margin of 2.8% in terms of
+iIoUclass. Compared with the baseline FCN model, perform-
+ing perspective-aware parsing with the help of PEN signiﬁ-
+cantly improves the performance by 5.6% and 3.8% on the
+instance-level scores iIoUclass and iIoUcategory respectively
+(highlighted in blue). This veriﬁes perspective information
+is indeed beneﬁcial for urban scene parsing.
+Figure 6 provides more qualitative results. We visual-
+ize the parsing results on the fovea region (from PEN) with
+FoveaNet or with FCN baseline model (the 4th row and the
+3rd row respectively). One can observe that perspective-
+aware parsing gives results with richer details. Particularly,
+the pole, trafﬁc light and trafﬁc sign are parsed very well.
+This is also conﬁrmed by their IoU improvement in Table 1
+(highlighted in green), which is up to 6%. These qualitative
+and quantitative results clearly validate the effectiveness of
+the perspective-aware parsing network on objects of small
+scales, as it can better address the scale heterogeneity issue
+in urban scenes.
+Perspective-aware CRFs: Based on the perspective-
+aware parsing on the fovea region, we further compare
+perspective-aware CRFs, normal dense CRFs and depth-
+aware CRFs in Table 1. The depth-aware CRFs model is
+similar to the perspective-aware CRFs model, except that
+the perspective heatmap in Eqn. (2) is replaced by single
+image depth prediction from the method in [10].
+We observe that truck, bus and train are the three classes
+with most severe “broken-down” errors. Applying the nor-
+Figure 6: Example parsing results on Cityscapes. 1st-2nd row: urban scene images with two types of fovea regions derived from global
+prior (red) and PEN (yellow) based on its estimated heatmap (2nd row). 3rd row: parsing result on fovea regions with FCN baseline. 4th
+row: parsing result on fovea region with FoveaNet. FoveaNet produces more detailed parsing results on small scale objects e.g., pole,
+trafﬁc light, trafﬁc sign. Best viewed in color.
+mal dense CRFs improves the IoUclass of these three classes
+by up to 10.4% (highlighted in brown). This demonstrates
+that the normal dense CRFs model is effective in allevi-
+ating the “broken-down” error to some extent. However,
+the normal dense CRFs model harms the parsing results
+of small-scale objects. This can be observed from IoUclass
+of pole, trafﬁc light and trafﬁc sign (highlighted in orange)
+which signiﬁcantly drop w.r.t. results provided by its base-
+line (baseline FCN + PEN fovea region). This is due to
+over-smoothness artifacts of the normal dense CRFs as it is
+unaware of the scale variance within the image.
+In contrast, the perspective-aware CRFs model signiﬁ-
+cantly boosts the IoUclass of truck, bus, and train by 15.7%,
+6.0%, 12.3% respectively (highlighted in red), without
+harming the results of small objects. Therefore, by incorpo-
+rating perspective information, the perspective-aware CRFs
+model successfully reduces the “broken-down” errors with-
+out bringing over-smoothness, superior to the normal dense
+CRFs. The depth-aware CRFs model is superior to the nor-
+mal dense CRFs one, but inferior to the perspective-aware
+CRFs one. This demonstrates that considering perspective
+geometry is useful but depth prediction is not so discrimi-
+native as perspective information predicted by our proposed
+model, as discussed in Section 3.3.
+Figure 7 gives additional parsing examples from the
+perspective-aware CRFs model. The trained Faster R-CNN
+model provides several object bounding boxes for the three
+urban scene images. PEN predicts perspective scores on
+these objects, where a brighter value indicates a higher
+probability of being near to the vanishing point (2nd row).
+We can observe that before applying perspective-aware
+CRFs, large scale objects suffers from “broken-down” er-
+rors (3rd row). Perspective-aware CRFs signiﬁcantly re-
+duces such errors in the peripheral region without over-
+smoothing small objects (e.g., pole) (4th row).
+Comparison with State-of-the-art We ﬁne-tune the
+FoveaNet using both training and validation images. Then
+on the test set we compare its performance with state-of-
+the-art published models which achieved best performance.
+Table 3 shows the results. Our FoveaNet outperforms all
+the published state-of-the-arts. FoveaNet performs espe-
+cially well at instance-level (see iIoU results). Compared
+with the FCN model, FoveaNet brings signiﬁcant improve-
+ment on iIoUclass and iIoUcategory, up to 5.2%. These two
+instance-level scores reﬂect the good parsing performance
+of FoveaNet on small scale objects. The improvement
+of IoUclass and IoUcategory can be largely attributed to our
+perspective-aware CRFs, which can signiﬁcantly reduce
+“broken-down” errors. Upon acceptance, we will release
+the code and model.
+Figure 7: Parsing results of perspective-aware CRFs on Cityscapes validation set. Top: input images with object detection bounding
+boxes (yellow). 2nd row: parsing results from FCN. Large scale objects in peripheral region present “broken-down” errors. 3rd row: the
+perspective information by PEN which is integrated into proposed perspective-aware CRFs. Bottom: FoveaNet applies perspective-aware
+CRFs to remove the “broken-down” error. Best viewed in color.
+Table 3: Performance comparison with baseline models on
+Cityscapes test set.
+Table 4: Performance comparison with baseline models on
+CamVid test set.
+Global Accuracy Average Accuracy
+Class
+Video
+Labeled
+Cambridge-driving
+Database
+(CamVid) [2] consists of over 10min of high quality
+videos. There are pixel-level annotations of 701 frames
+with resolution 960 × 720. Each pixel is labeled with
+one of the 32 candidate classes. Perspective geometry
+can also be observed on these frames. Following previous
+works [1, 20], we use 11 classes for evaluation and report
+the per-pixel and average per-pixel accuracy. To implement
+FoveaNet, we reuse PEN and Faster-RCNN trained on
+Cityscapes urban scene images. The two-branch FCN
+model (coarse and fovea branch) are initialized from
+ResNet-101 and ﬁne-tuned on CamVid training and valida-
+tion sets. The performance of FoveaNet on the test set and
+the comparison with state-of-the-arts are shown in Table 4.
+FoveaNet outperforms the best baseline method on this
+dataset by 1.7% and 3.7% in global accuracy and average
+accuracy respectively. Due to limited space, we defer
+qualitative results on CamVid to Supplementary Material.
+5. Conclusion
+We proposed a new urban scene parsing model FoveaNet
+by considering the ubiquitous scale heterogeneity when
+parsing scene images, which can provide state-of-the-art
+performance as validated on the Cityscapes and CamVid
+datasets. FoveaNet exploits the perspective geometry infor-
+mation through two novel components, perspective-aware
+parsing net and perspective-aware CRFs model, which work
+jointly and successfully to solve the common scale issues,
+including parsing errors on small distant objects, “broken-
+down” errors on large objects and over-smoothing artifacts.
+6. Acknowledgments
+Seg-
+net: A deep convolutional encoder-decoder architecture
+arXiv preprint
+for robust semantic pixel-wise labelling.
+arXiv:1505.07293, 2015.
+[6] J. Dai, K. He, and J. Sun. Boxsup: Exploiting bounding
+boxes to supervise convolutional networks for semantic seg-
+mentation. In ICCV, 2015.
+from a single image using a multi-scale deep network.
+NIPS, 2014.
+hierarchical features for scene labeling. TPAMI, 2013.
+single view depth estimation: Geometry to the rescue.
+ECCV, 2016.
+tion and reﬁnement for semantic segmentation.
+2016.
+[17] F. Juefei-Xu, E. Verma, P. Goel, A. Cherodian, and M. Sav-
+vides. Deepgender: Occlusion and low resolution robust fa-
+cial gender classiﬁcation via progressively trained convolu-
+tional neural networks with attention. In CVPR Workshops,
+2016.
+[21] C. Liang-Chieh, G. Papandreou, I. Kokkinos, K. Murphy,
+and A. Yuille. Semantic image segmentation with deep con-
+volutional nets and fully connected crfs. In ICLR, 2015.
+networks for semantic segmentation. In CVPR, 2015.
+[27] M. Mostajabi, P. Yadollahpour, and G. Shakhnarovich. Feed-
+forward semantic segmentation with zoom-out features. In
+CVPR, 2015.
+[30] S. Rota Bulo and P. Kontschieder. Neural decision forests for
+neural networks for scene labeling. In CVPR, 2016.
+[33] P. Sturgess, K. Alahari, L. Ladicky, and P. H. Torr. Combin-
+ing appearance and structure from motion features for road
+scene understanding. In BMVC, 2009.
+Efﬁcient
+inference for fully-
+connected crfs with stationarity. In CVPR, 2012.

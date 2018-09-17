@@ -1,0 +1,742 @@
+PointFusion: Deep Sensor Fusion for 3D Bounding Box Estimation
+Danfei Xu∗
+Stanford Unviersity
+Dragomir Anguelov
+Ashesh Jain
+Zoox Inc.
+danfei@cs.stanford.edu
+drago@zoox.com
+ashesh@zoox.com
+Abstract
+We present PointFusion, a generic 3D object detection
+method that leverages both image and 3D point cloud in-
+formation. Unlike existing methods that either use multi-
+stage pipelines or hold sensor and dataset-speciﬁc assump-
+tions, PointFusion is conceptually simple and application-
+agnostic. The image data and the raw point cloud data are
+independently processed by a CNN and a PointNet archi-
+tecture, respectively. The resulting outputs are then com-
+bined by a novel fusion network, which predicts multiple
+3D box hypotheses and their conﬁdences, using the input
+3D points as spatial anchors. We evaluate PointFusion on
+two distinctive datasets:
+the KITTI dataset that features
+driving scenes captured with a lidar-camera setup, and the
+SUN-RGBD dataset that captures indoor environments with
+RGB-D cameras. Our model is the ﬁrst one that is able to
+perform better or on-par with the state-of-the-art on these
+diverse datasets without any dataset-speciﬁc model tuning.
+We focus on 3D object detection, which is a fundamen-
+tal computer vision problem impacting most autonomous
+robotics systems including self-driving cars and drones.
+The goal of 3D object detection is to recover the 6 DoF pose
+and the 3D bounding box dimensions for all objects of in-
+terest in the scene. While recent advances in convolutional
+neural networks (CNNs) have enabled accurate 2D detec-
+tion in complex environments [23, 21, 18], the 3D object
+detection problem still remains an open challenge. Meth-
+ods for 3D box regression from a single image, even in-
+cluding recent deep learning methods such as [20, 34], still
+have relatively low accuracy especially in terms of depth
+estimates at longer ranges. Hence, many current real-world
+systems either use stereo or augment their sensor stack with
+lidar and radar. The lidar-radar mixed-sensor setup is partic-
+ularly popular in self-driving cars and is typically handled
+by a multi-stage pipeline, which preprocesses each sensor
+modality separately and then performs a late fusion step us-
+ing an expert-designed tracking system such as a Kalman
+∗Work done as an intern at Zoox, Inc.
+Figure 1. Sample 3D object detection results of our PointFusion
+model on the KITTI dataset [9] (left) and the SUN-RGBD [28]
+dataset (right). In this paper, we show that our simple and generic
+sensor fusion method is able to handle datasets with distinctive
+environments and sensor types and perform better or on-par with
+state-of-the-art methods on the respective datasets.
+ﬁlter [4, 7]. Such systems make simplifying assumptions
+and make decisions in the absence of context from other
+sensors. Inspired by the successes of deep learning for han-
+dling diverse raw sensory input, we propose an early fusion
+model for 3D box estimation, which directly learns to com-
+bine image and depth information optimally.
+Various combinations of cameras and 3D sensors are widely
+used in the ﬁeld, and it is desirable to have a single algo-
+rithm that generalizes to as many different problem settings
+as possible. Many real-world robotic systems are equipped
+with multiple 3D sensors: for example, autonomous cars
+often have multiple lidars and potentially also radars. Yet,
+current algorithms often assume a single RGB-D cam-
+era [30, 15], which provides RGB-D images, or a single
+lidar sensor [3, 17], which allows the creation of a local
+front view image of the lidar depth and intensity readings.
+Many existing algorithms also make strong domain-speciﬁc
+assumptions. For example, MV3D [3] assumes that all ob-
+jects can be segmented in a top-down 2D view of the point
+cloud, which works for the common self-driving case but
+does not generalize to indoor scenes where objects can be
+placed on top of each other. Furthermore, the top-down
+view approach tends to only work well for objects such as
+cars, but does not for other key object classes such as pedes-
+trians or bicyclists. Unlike the above approaches, the fusion
+architecture we propose is designed to be domain-agnostic
+and agnostic to the placement, type, and number of 3D sen-
+sors. As such, it is generic and can be used for a variety of
+robotics applications.
+In designing such a generic model, we need to solve the
+challenge of combining the heterogeneous image and 3D
+point cloud data. Previous work addresses this challenge
+by directly transforming the point cloud to a convolution-
+friendly form. This includes either projecting the point
+cloud onto the image [10] or voxelizing the point cloud [30,
+16]. Both of these operations involve lossy data quantiza-
+tion and require special models to handle sparsity in the
+lidar image [32] or in voxel space [25].
+Instead, our so-
+lution retains the inputs in their native representation and
+processes them using heterogeneous network architectures.
+Speciﬁcally for the point cloud, we use a variant of the re-
+cently proposed PointNet [22] architecture, which allows us
+to process the raw points directly.
+Our deep network for 3D object box regression from im-
+ages and sparse point clouds has three main components:
+an off-the-shelf CNN [12] that extracts appearance and ge-
+ometry features from input RGB image crops, a variant of
+PointNet [22] that processes the raw 3D point cloud, and a
+fusion sub-network that combines the two outputs to predict
+3D bounding boxes. This heterogeneous network architec-
+ture, as shown in Fig. 2, takes full advantage of the two
+data sources without introducing any data processing bi-
+ases. Our fusion sub-network features a novel dense 3D box
+prediction architecture, in which for each input 3D point,
+the network predicts the corner locations of a 3D box rela-
+tive to the point. The network then uses a learned scoring
+function to select the best prediction. The method is in-
+spired by the concept of spatial anchors [23] and dense pre-
+diction [13]. The intuition is that predicting relative spatial
+locations using input 3D points as anchors reduces the vari-
+ance of the regression objective comparing to an architec-
+ture that directly regresses the 3D location of each corner.
+We demonstrate that the dense prediction architecture out-
+performs the architecture that regresses 3D corner locations
+directly by a large margin.
+We evaluate our model on two distinctive 3D object detec-
+tion datasets. The KITTI dataset [9] focuses on the outdoor
+urban driving scenario in which pedestrians, cyclists, and
+cars are annotated in data acquired with a camera-lidar sys-
+tem. The SUN-RGBD dataset [28] is recorded via RGB-D
+cameras in indoor environments, with more than 700 object
+categories. We show that by combining PointFusion with an
+off-the-shelf 2D object detector [23], we get results better or
+on-par with state-of-the-art methods designed for KITTI [3]
+and SUN-RGBD [15, 30, 24], using the challenging 3D ob-
+ject detection metric. To the best of our knowledge, our
+model is the ﬁrst one to achieve competitive results on these
+very different datasets, proving its general applicability.
+1. Related Work
+We give an overview of the previous work on 6-DoF object
+pose estimation, which is related to our approach.
+Geometry-based methods A number of methods focus on
+estimating the 6-DoF object pose from a single image or
+an image sequence. These include keypoint matching be-
+tween 2D images and their corresponding 3D CAD mod-
+els [1, 5, 35], or aligning 3D-reconstructed models with
+ground-truth models to recover the object poses [26, 8].
+Gupta et al. [11] propose to predict a semantic segmenta-
+tion map as well as object pose hypotheses using a CNN and
+then align the hypotheses with known object CAD models
+using ICP. These types of methods rely on strong category
+shape priors or ground-truth object CAD models, which
+makes them difﬁcult to scale to larger datasets. In contrary,
+our generic method estimates both the 6-DoF pose and spa-
+tial dimensions of an object without object category knowl-
+edge or CAD models.
+3D box regression from images The recent advances in
+deep models have dramatically improved 2D object detec-
+tion, and some methods propose to extend the objectives
+with the full 3D object poses. [31] uses R-CNN to propose
+2D RoI and another network to regress the object poses.
+[20] combines a set of deep-learned 3D object parameters
+and geometric constraints from 2D RoIs to recover the full
+3D box. Xiang et al. [34, 33] jointly learns a viewpoint-
+dependent detector and a pose estimator by clustering 3D
+voxel patterns learned from object models. Although these
+methods excel at estimating object orientations, localizing
+the objects in 3D from an image is often handled by impos-
+ing geometric constraints [20] and remains a challenge for
+lack of direct depth measurements. One of the key contri-
+butions of our model is that it learns to effectively combine
+the complementary image and depth sensor information.
+3D box regression from depth data Newer studies have
+proposed to directly tackle the 3D object detection problem
+in discretized 3D spaces. Song et al. [29] learn to classify
+3D bounding box proposals generated by a 3D sliding win-
+dow using synthetically-generated 3D features. A follow-
+up study [30] uses a 3D variant of the Region Proposal Net-
+work [23] to generate 3D proposals and uses a 3D ConvNet
+to process the voxelized point cloud. A similar approach by
+Li et al. [16] focuses on detecting vehicles and processes
+the voxelized input with a 3D fully convolutional network.
+However, these methods are often prohibitively expensive
+because of the discretized volumetric representation. As
+an example, [30] takes around 20 seconds to process one
+frame. Other methods, such as VeloFCN [17], focus on a
+single lidar setup and form a dense depth and intensity im-
+age, which is processed with a single 2D CNN. Unlike these
+methods, we adopt the recently proposed PointNet [22] to
+process the raw point cloud. The setup can accommodate
+multiple depth sensors, and the time complexity scales lin-
+Figure 2. An overview of the dense PointFusion architecture. PointFusion has two feature extractors: a PointNet variant that processes
+raw point cloud data (A), and a CNN that extracts visual features from an input image (B). We present two fusion network formulations: a
+vanilla global architecture that directly regresses the box corner locations (D), and a novel dense architecture that predicts the spatial offset
+of each of the 8 corners relative to an input point, as illustrated in (C): for each input point, the network predicts the spatial offset (white
+arrows) from a corner (red dot) to the input point (blue), and selects the prediction with the highest score as the ﬁnal prediction (E).
+early with the number of range measurements irrespective
+of the spatial extent of the 3D scene.
+2D-3D fusion Our paper is most related to recent methods
+that fuse image and lidar data. MV3D by Chen et al. [3]
+generates object detection proposals in the top-down lidar
+view and projects them to the front-lidar and image views,
+fusing all the corresponding features to do oriented box re-
+gression. This approach assumes a single-lidar setup and
+bakes in the restrictive assumption that all objects are on
+the same spatial plane and can be localized solely from a
+top-down view of the point cloud, which works for cars but
+not pedestrians and bicyclists. In contrast, our method has
+no scene or object-speciﬁc limitations, as well as no limita-
+tions on the kind and number of depth sensors used.
+2. PointFusion
+In this section, we describe our PointFusion model, which
+performs 3D bounding box regression from a 2D image
+crop and a corresponding 3D point cloud that is typically
+produced by one or more lidar sensors (see Fig. 1). When
+our model is combined with a state of the art 2D object de-
+tector supplying the 2D object crops, such as [23], we get
+a complete 3D object detection system. We leave the the-
+oretically straightforward combination of PointFusion and
+the detector into a single end-to-end model to future work
+since we already get state of the art results with this simpler
+two-stage setup.
+PointFusion has three main components:
+a variant of
+the PointNet network that extracts point cloud features
+(Fig. 2A), a CNN that extracts image appearance features
+(Fig. 2B), and a fusion network that combines both features
+and outputs a 3D bounding box for the object in the crop.
+Below, we go into the details of our point cloud and fusion
+sub-components. We also describe two variants of the fu-
+sion network: a vanilla global architecture (Fig. 2C) and a
+novel dense fusion network (Fig. 2D).
+2.1. Point Cloud Network
+We process the input point clouds using a variant of the
+PointNet architecture by Qi et al. [22]. PointNet pioneered
+the use of a symmetric function (max-pooling) to achieve
+permutation invariance in the processing of unordered 3D
+point cloud sets. The model ingests raw point clouds and
+learns a spatial encoding of each point and also an aggre-
+gated global point cloud feature. These features are then
+used for classiﬁcation and semantic segmentation.
+PointNet has many desirable properties: it processes the raw
+points directly without lossy operations like voxelization or
+projection, and it scales linearly with the number of input
+points. However, the original PointNet formulation cannot
+be used for 3D regression out of the box. Here we describe
+two important changes we made to PointNet.
+No BatchNorm Batch normalization has become indis-
+pensable in modern neural architecture design as it effec-
+tively reduces the covariance shift in the input features. In
+the original PointNet implementation, all fully connected
+layers are followed by a batch normalization layer. How-
+ever, we found that batch normalization hampers the 3D
+bounding box estimation performance. Batch normaliza-
+tion aims to eliminate the scale and bias in its input data, but
+for the task of 3D regression, the absolute numerical values
+of the point locations are helpful. Therefore, our PointNet
+variant has all batch normalization layers removed.
+Figure 3. During input preprocessing, we compute a rotation Rc
+to canonicalize the point cloud inside each RoI.
+Input normalization As described in the setup, the cor-
+responding 3D point cloud of an image bounding box is ob-
+tained by ﬁnding all points in the scene that can be pro-
+jected onto the box. However, the spatial location of the
+3D points is highly correlated with the 2D box location,
+which introduces undesirable biases. PointNet applies a
+Spatial Transformer Network (STN) to canonicalize the in-
+put space. However, we found that the STN is not able to
+fully correct these biases. We instead use the known camera
+geometry to compute the canonical rotation matrix Rc. Rc
+rotates the ray passing through the center of the 2D box to
+the z-axis of the camera frame. This is illustrated in Fig. 3.
+2.2. Fusion Network
+The fusion network takes as input an image feature ex-
+tracted using a standard CNN and the corresponding point
+cloud feature produced by the PointNet sub-network.
+Its
+job is to combine these features and to output a 3D bound-
+ing box for the target object. Below we propose two fusion
+network formulations, a vanilla global fusion network, and
+a novel dense fusion network.
+Global fusion network As shown in Fig. 2C, the global
+fusion network processes the image and point cloud fea-
+tures and directly regresses the 3D locations of the eight
+corners of the target bounding box. We experimented with
+a number of fusion functions and found that a concatenation
+of the two vectors, followed by applying a number of fully
+connected layers, results in optimal performance. The loss
+function with the global fusion network is then:
+where x∗
+i are the ground-truth box corners, xi are the pre-
+dicted corner locations and Lstn is the spatial transforma-
+tion regularization loss introduced in [22] to enforce the
+orthogonality of the learned spatial transform matrix.
+A major drawback of the global fusion network is that the
+variance of the regression target x∗
+i is directly dependent on
+the particular scenario. For autonomous driving, the system
+may be expected to detect objects from 1m to over 100m.
+This variance places a burden on the network and results in
+sub-optimal performance. To address this, we turn to the
+well-studied problem of 2D object detection for inspiration.
+Instead of directly regressing the 2D box, a common solu-
+tion is to generate object proposals by using sliding win-
+dows [6] or by predicting the box displacement relative to
+spatial anchors [13, 23]. These ideas motivate our dense
+fusion network, which is described below.
+Dense fusion network The main idea behind this model
+is to use the input 3D points as dense spatial anchors. In-
+stead of directly regressing the absolute locations of the 3D
+box corners, for each input 3D point we predict the spatial
+offsets from that point to the corner locations of a nearby
+box. As a result, the network becomes agnostic to the spa-
+tial extent of a scene. The model architecture is illustrated
+in Fig. 2C. We use a variant of PointNet that outputs point-
+wise features. For each point, these are concatenated with
+the global PointNet feature and the image feature resulting
+in an n × 3136 input tensor. The dense fusion network
+processes this input using several layers and outputs a 3D
+bounding box prediction along with a score for each point.
+At test time, the prediction that has the highest score is se-
+lected to be the ﬁnal prediction. Concretely, the loss func-
+tion of the dense fusion network is:
+(2)
+where N is the number of the input points, xi∗
+oﬀset is the
+offset between the ground truth box corner locations and the
+i-th input point, and xi
+oﬀset contains the predicted offsets.
+Lscore is the score function loss, which we explain in depth
+in the next subsection.
+2.3. Dense Fusion Prediction Scoring
+The goal of the Lscore function is to focus the network on
+learning spatial offsets from points that are close to the tar-
+get box. We propose two scoring functions: a supervised
+scoring function that directly trains the network to predict
+if a point is inside the target bounding box and an unsuper-
+vised scoring function that lets network to choose the point
+that would result in the optimal prediction.
+Supervised scoring The supervised scoring loss trains
+the network to predict if a point is inside the target box.
+oﬀset,
+Let’s denote the offset regression loss for point i as Li
+and the binary classiﬁcation loss of the i-th point as Li
+score.
+Then we have:
+where mi ∈ {0, 1} indicates whether the i-th point is in the
+target bounding box and Lscore is a cross-entropy loss that
+penalizes incorrect predictions of whether a given point is
+inside the box. As deﬁned, this supervised scoring function
+focuses the network on learning to predict the spatial offsets
+from points that are inside the target bounding box. How-
+ever, this formulation might not give the optimal result, as
+the point most conﬁdently inside the box may not be the
+point with the best prediction.
+Unsupervised scoring The goal of unsupervised scoring
+is to let the network learn directly which points are likely to
+give the best hypothesis, whether they are most conﬁdently
+inside the object box or not. We need to train the network to
+assign high conﬁdence to the point that is likely to produce
+a good prediction. The formulation includes two compet-
+ing loss terms: we prefer high conﬁdences ci for all points,
+however, corner prediction errors are scored proportional to
+this conﬁdence. Let’s deﬁne Li
+oﬀset to be the corner offset
+regression loss for point i. Then the loss becomes:
+where w is the weight factor between the two terms. Above,
+the second term encodes a logarithmic bonus for increasing
+ci conﬁdences. We empirically ﬁnd the best w and use w =
+0.1 in all of our experiments.
+3. Experiments
+We focus on answering two questions: 1) does PointFusion
+perform well on different sensor conﬁgurations and envi-
+ronments compared to models that hold dataset or sensor-
+speciﬁc assumptions and 2) does the dense prediction ar-
+chitecture and the learned scoring function perform better
+than architectures that directly regress the spatial locations.
+To answer 1), we compare our model against the state of the
+art on two distinctive datasets, the KITTI dataset [9] and the
+SUN-RGBD dataset [28]. To answer 2), we conduct abla-
+tion studies for the model variations described in Sec. 2.
+3.1. Datasets
+KITTI The KITTI dataset [9] contains both 2D and 3D
+annotations of cars, pedestrians, and cyclists in urban driv-
+ing scenarios. The sensor conﬁguration includes a wide-
+angle camera and a Velodyne HDL-64E LiDAR. The ofﬁ-
+cial training set contains 7481 images. We follow [3] and
+split the dataset into training and validation sets, each con-
+taining around half of the entire set. We report model per-
+formance on the validation set for all three object categories.
+SUN-RGBD The SUN-RGBD dataset [28] focuses on in-
+door environments, in which as many as 700 object cat-
+egories are labeled. The dataset is collected via different
+types of RGB-D cameras with varying resolutions. The
+training and testing sets contain 5285 and 5050 images, re-
+spectively. We report model performance on the testing set.
+We follow the KITTI training and evaluation setup with
+one exception. Because SUN-RGBD does not have a di-
+rect mapping between the 2D and 3D object annotations, for
+each 3D object annotation, we project the 8 corners of the
+3D box to the image plane and use the minimum enclosing
+2D bounding box as training data for the 2D object detec-
+tor and our models. We report 3D detection performance of
+our models on the same 10 object categories as in [24, 15].
+Because these 10 object categories contain relatively large
+objects, we also show detection results on the 19 categories
+from [30] to show our model’s performance on objects of
+all sizes. We use the same set of hyper-parameters in both
+KITTI and SUN-RGBD.
+We use the 3D object detection average precision metric
+(AP3D) in our evaluation. A predicted 3D box is a true
+positive if its 3D intersection-over-union ratio (3D IoU)
+with a ground truth box is over a threshold. We compute
+a per-class precision-recall curve and use the area under
+the curve as the AP measure. We use the ofﬁcial eval-
+uation protocol for the KITTI dataset, i.e., the 3D IoU
+thresholds are 0.7, 0.5, 0.5 for Car, Cyclist,
+Pedestrian respectively. Following [28, 24, 15], we use
+a 3D IoU threshold 0.25 for all classes in SUN-RGBD.
+3.3. Implementation Details
+Architecture We use a ResNet-50 pretrained on Ima-
+geNet [27] for processing the input image crop. The output
+feature vector is produced by the ﬁnal residual block (block-
+4) and averaged across the feature map locations. We use
+the original implementation of PointNet with all batch nor-
+malization layers removed. For the 2D object detector, we
+use an off-the-shelf Faster-RCNN [23] implementation [14]
+pretrained on MS-COCO [19] and ﬁne-tuned on the datasets
+used in the experiments. We use the same set of hyper-
+parameters and architectures in all of our experiments.
+Training and evaluation During training, we randomly re-
+size and shift the ground truth 2D bounding boxes by 10%
+along their x and y dimensions. These boxes are used as the
+input crops for our models. At evaluation time, we use the
+output of the trained 2D detector. For each input 2D box,
+we crop and resize the image to 224 × 224 and randomly
+sample a maximum of 400 input 3D points in both training
+and evaluation. At evaluation time, we apply PointFusion to
+the top 300 2D detector boxes for each image. The 3D de-
+tection score is computed by multiplying the 2D detection
+score and the predicted 3D bounding box scores.
+Figure 4. Qualitative results on the KITTI dataset. Detection results are shown in transparent boxes in 3D and wireframe boxes in images.
+3D box corners are colored to indicate direction: red is front and yellow is back. Input 2D detection boxes are shown in red. The top two
+rows compare our ﬁnal lidar + rgb model with a lidar only model dense-no-im. The bottom row shows more results from the ﬁnal model.
+Detections with score > 0.5 are visualized.
+3.4. Architectures
+We compare 6 model variants to showcase the effectiveness
+of our design choices.
+• ﬁnal uses our dense prediction architecture and the unsu-
+pervised scoring function as described in Sec. 2.3.
+• dense implements the dense prediction architecture with
+a supervised scoring function as described in Sec. 2.3.
+• dense-no-im is the same as dense but takes only the point
+cloud as input.
+• global is a baseline model that directly regresses the 8
+• global-no-im is the same as the global but takes only the
+point cloud as input.
+• rgb-d replaces the PointNet component with a generic
+CNN, which takes a depth image as input. We use it as
+an example of a homogeneous architecture baseline. 1
+3.5. Evaluation on KITTI
+Overview Table 1 shows a comprehensive comparison of
+models that are trained and evaluated only with the car
+category on the KITTI validation set, including all base-
+lines and the state of the art methods 3DOP [2] (stereo),
+VeloFCN [17] (LiDAR), and MV3D [3] (LiDAR + rgb).
+Among our variants, ﬁnal achieves the best performance,
+while the homogeneous CNN architecture rgb-d has the
+worst performance, which underscores the effectiveness of
+our heterogeneous model design.
+Compare with MV3D [3] The ﬁnal model also outper-
+forms the state of the art method MV3D [3] on the easy cat-
+egory (3% more in AP3D), and has a similar performance
+on the moderate category (1.5% less in AP3D). When we
+train a single model using all 3 KITTI categories ﬁnal (all-
+class), we roughly get a 3% further increase, achieving a
+6% gain over MV3D on the easy examples and a 0.5% gain
+on the moderate ones. This shows that our model learns
+a generic 3D representation that can be shared across cat-
+1We have experimented with a number of such architectures and found
+that achieving a reasonable performance requires non-trivial effort. Here
+we present the model that achieves the best performance. Implementation
+details of the model are included in the supplementary material.
+Table 1. AP3D results for the car category on the KITTI dataset.
+Models are trained on car examples only, with the exception of
+Ours-ﬁnal (all-class), which is trained on all 3 classes.
+method
+3DOP[2]
+VeloFCN[17]
+MV3D [3]
+rgb-d
+Ours-global-no-im
+Ours-global
+Ours-dense-no-im
+Ours-dense
+Ours-ﬁnal
+Ours-ﬁnal (all-class)
+category
+model
+easy moderate
+pedestrian
+car
+cyclist
+egories. Still, MV3D outperforms our models on the hard
+examples, which are objects that are signiﬁcantly occluded,
+by a considerable margin (6% and 3% AP3D for the two
+models mentioned). We believe that the gap with MV3D
+for occluded objects is due to two factors: 1) MV3D uses
+a bird’s eye view detector for cars, which is less suscep-
+tible to occlusion than our front-view setup.
+It also uses
+custom-designed features for car detection that should gen-
+eralize better with few training examples 2) MV3D is an
+end-to-end system, which allows one component to poten-
+tially correct errors in another. Turning our approach into
+a fully end-to-end system may help close this gap further.
+Unlike MV3D, our general and simple method achieves ex-
+cellent results on pedestrian and cyclist, which are
+state of the art by a large margin (see Table 2).
+Global vs. dense The dense architecture has a clear advan-
+tage over the global architecture as shown in Table 1: dense
+and dense-no-im outperforms global and global-no-im, re-
+spectively, by large margins. This shows the effectiveness
+of using input points as spatial anchors.
+Supervised vs unsupervised scores In Sec. 2.3, we intro-
+duce a supervised and an unsupervised scoring function for-
+mulation. Table 1 and Table 2 show that the unsupervised
+scoring function performs a bit better for our car-only and
+all-category models. These results support our hypothesis
+that a point conﬁdently inside the object is not always the
+point that will give the best prediction. It is better to rely on
+a self-learned scoring function for the speciﬁc task than on
+a hand-picked proxy objective.
+Effect of fusion Both car-only and all-category evaluation
+results show that fusing lidar and image information al-
+ways yields signiﬁcant gains over lidar-only architectures,
+but the gains vary across classes. Table 2 shows that the
+largest gains are for pedestrian (3% to 47% in AP3D
+for easy examples) and for cyclist (5% to 32%). Objects
+in these categories are smaller and have fewer lidar points,
+so they beneﬁt the most from high-resolution camera data.
+Although sparse lidar points often sufﬁce in determining the
+Figure 5. Ablation experiment:
+(AP3D) given maximum number of input points per RoI.
+3D detection performances
+spatial location of an object, image appearance features are
+still helpful in estimating the object dimensions and orien-
+tation. This effect is analyzed qualitatively below.
+Qualitative Results Fig. 4 showcases some sample predic-
+tions from the lidar-only architecture dense-no-im and our
+ﬁnal model. We observe that the fusion model is better at
+estimating the dimension and orientation of objects than the
+lidar-only model. In column (a), one can see that the fu-
+sion model is able to determine the correct orientation and
+spatial extents of the cyclists and the pedestrians whereas
+the lidar-only model often outputs inaccurate boxes. Simi-
+lar trends can also be observed in (b). In (c) and (d), we note
+that although the lidar-only model correctly determines the
+dimensions of the cars, it fails to predict the correct orienta-
+tions of the cars that are occluded or distant. The third row
+of Fig. 4 shows more complex scenarios. (a) shows that our
+model correctly detects a person on a ladder. (b) shows a
+complex highway driving scene. (c) and (d) show that our
+model may occasionally fail in extremely cluttered scenes.
+Number of input points Finally, we conduct a study on the
+effect of limiting the number of input points at test time.
+Given a ﬁnal model trained with at most 400 points per
+crop, we vary the maximum number of input points per RoI
+and evaluate how the 3D detection performance changes.
+As shown in 5, the performance stays constant at 300-500
+points and degrades rapidly below 200 points. This shows
+that our model needs a certain amount of points to perform
+well but is also robust against variations.
+Table 3. 3D detection results on the SUN-RGBD test set using the 3D Average Precision metrics with 0.25 IoU threshold. Our model
+achieves results that are comparable to the state-of-the-art models while achieving much faster speed.
+rgbd
+Ours-dense-no-im
+Ours-ﬁnal
+bathtub
+dresser
+3.6. Evaluation on SUN-RGBD
+Comparison with our baselines As shown in Table 3, ﬁnal
+is our best model variant and outperforms the rgb-d baseline
+by 6% mAP. This is a much smaller gap than in the KITTI
+dataset, which shows that the CNN performs well when it
+is given dense depth information (rgb-d cameras provide a
+depth measurement for every rgb image pixel). Further-
+more, rgb-d performs roughly on-par with our lidar-only
+model, which demonstrates the effectiveness of our Point-
+Net subcomponent and the dense architecture.
+Comparison with other methods We compare our model
+with three approaches from the current state of the art. Deep
+Sliding Shapes (DSS) [30] generates 3D regions using a
+proposal network and then processes them using a 3D con-
+volutional network, which is prohibitively slow. Our model
+outperforms DSS by 3% mAP while being 15 times faster.
+Clouds of Oriented Gradients (COG) by Ren et al. [24] ex-
+ploits the scene layout information and performs exhaustive
+3D bounding box search, which makes it run in the tens of
+minutes. In contrast, PointFusion only uses the 3D points
+that project to a 2D detection box and still outperforms
+COG on 6 out of 10 categories, while approaching its over-
+all mAP performance. PointFusion also compares favorably
+to the method of Lahoud et al. [15], which uses a multi-
+stage pipeline to perform detection, orientation regression
+and object reﬁnement using object relation information.
+Our method is simpler and does not make environment-
+speciﬁc assumptions, yet it obtains a marginally better mAP
+while being 3 times faster. Note that for simplicity, our
+evaluation protocol passes all 300 2D detector proposals for
+each image to PointFusion. Since our 2D detector takes
+only 0.2s per frame, we can easily get sub-second evalua-
+tion times simply by discarding detection boxes with scores
+below a threshold, with minimal performance losses.
+Qualitative results Fig. 6 shows some sample detection re-
+sults from the ﬁnal model on 19 object categories. Our
+model is able to detect objects of various scales, orienta-
+tions, and positions. Note that because our model does not
+use a top-down view representation, it is able to detect ob-
+jects that are on top of other objects, e.g., pillows on top of a
+bed. Failure modes include errors caused by objects which
+are only partially visible in the image or from cascading er-
+rors from the 2D detector.
+Figure 6. Sample 3D detection results from our ﬁnal model on the
+SUN-RGBD test set. Our modle is able to detect objects of vari-
+able scales, orientations, and even objects on top of other objects.
+Detections with score > 0.7 are visualized.
+4. Conclusions and Future Work
+We present the PointFusion network, which accurately es-
+timates 3D object bounding boxes from image and point
+cloud information. Our model makes two main contribu-
+tions. First, we process the inputs using heterogeneous net-
+work architectures. The raw point cloud data is directly han-
+dled using a PointNet model, which avoids lossy input pre-
+processing such as quantization or projection. Second, we
+introduce a novel dense fusion network, which combines
+the image and point cloud representations. It predicts multi-
+ple 3D box hypotheses relative to the input 3D points, which
+serve as spatial anchors, and automatically learns to select
+the best hypothesis. We show that with the same architec-
+ture and hyper-parameters, our method is able to perform
+on par or better than methods that hold dataset and sensor-
+speciﬁc assumptions on two drastically different datasets.
+Promising directions of future work include combining the
+2D detector and the PointFusion network into a single end-
+to-end 3D detector, as well as extending our model with a
+temporal component to perform joint detection and tracking
+in video and point cloud streams.
+[10] M. Giering, V. Venugopalan, and K. Reddy. Multi-modal
+sensor registration for vehicle perception via deep neural net-
+In High Performance Extreme Computing Confer-
+works.
+ence (HPEC), 2015 IEEE, pages 1–6. IEEE, 2015. 2
+[16] B. Li. 3d fully convolutional network for vehicle detection
+[24] Z. Ren and E. B. Sudderth. Three-dimensional object detec-
+tion and layout prediction using clouds of oriented gradients.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition, pages 1525–1533, 2016. 2, 5, 8
+[25] G. Riedler, A. O. Ulusoy, and A. Geiger. Octnet: Learning
+deep representations at high resolution. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion, 2017. 2
+[26] F. Rothganger, S. Lazebnik, C. Schmid, and J. Ponce. 3d
+object modeling and recognition using local afﬁne-invariant
+image descriptors and multi-view spatial constraints. Inter-
+national Journal of Computer Vision, 66(3):231–259, 2006.
+2
+the pixels that have no depth values. For SUN-RGBD, we
+use the depth image. We normalize the depth measurement
+by the maximum depth range value. The ﬁfth channel is a
+depth measurement binary mask: 1 indicates that the corre-
+sponding pixel in the depth channel has a depth value. This
+is to add extra information to help the model to distinguish
+between no measurements and small measurements. Em-
+pirically we ﬁnd this extra channel useful.
+We found that training the model to predict the 3D corner
+locations is ineffective due to the highly non-linear mapping
+and lack of image grounding. Hence we regress the box cor-
+ner pixel locations and the depth of the corners and then use
+the camera geometry to recover the full 3D box. A similar
+approach has been applied in [20]. The pixel regression
+target is normalized between 0 and 1 by the dimensions of
+the input 2D box. For the depth objective, we found that
+directly regressing the depth value is difﬁcult especially for
+the KITTI dataset, in which the target objects have large lo-
+cation variance. Instead, we employed a multi-hypothesis
+method: we discretize the depth objective into overlapping
+bins and train the network to predict which bin contains the
+center of the target box. The network is also trained to pre-
+dict the residual depth of each corner to the center of the
+predicted depth bin. At test time, the corner depth values
+can be recovered by adding up the center depth of the pre-
+dicted bin and the predicted residual depth of each corner.
+Intuitively, this method lets the network to have a coarse-to-
+ﬁne estimate of the depth, alleviating the large variance in
+the depth objective.
+5. Supplementary
+5.1. 3D Localization AP in KITTI
+In addition to the AP3D metrics, we also report results on
+a 3D localization APloc metrics just for reference. A pre-
+dicted 3D box is a true positive if its 2D top-down view
+box has an IoU with a ground truth box is greater than a
+threshold. We compute a per-class precision-recall curve
+and use the area under the curve as the AP measure. We
+use the ofﬁcial evaluation protocol for the KITTI dataset,
+i.e., the 3D IoU thresholds are 0.7, 0.5, 0.5 for Car,
+Cyclist, Pedestrian respectively. Table 4 shows
+the results on models that are trained on Car only, with
+the exception of ﬁnal (all-class), which is trained on all cat-
+egories, and Table 5 shows the results of models that are
+trained on all categories.
+5.2. The rgbd baseline
+In the experiment section, we show that the rgbd baseline
+model performs the worst on the KITTI dataset. We observe
+that most of the predicted boxes have less than 0.5 IoU with
+ground truth boxes due to the errors in the predicted depth.
+The performance gap is reduced in the SUN-RGBD dataset
+due to the availability of denser depth map. However, it is
+non-trivial to achieve such performance using a CNN-based
+architecture. Here we describe the rgbd baseline in detail.
+5.2.1 Input representation
+The rgbd baseline is a CNN architecture that takes as in-
+put a 5-channel tensor. The ﬁrst three channels is the input
+RGB image. The fourth channel is the depth channel. For
+KITTI, we obtain the depth channel by projecting the lidar
+point cloud on to the image plane, and assigning zeros to
+Table 4. 3D detection results (AP3D) of the car category on the KITTI dataset. We compare against a number of state-of-the-art models.
+method
+input
+Stereo
+lidar
+lidar + rgb
+lidar + rgb
+lidar
+lidar + rgb
+lidar
+lidar + rgb
+lidar + rgb
+lidar + rgb
+APloc
+Table 5. 3D detection (AP3D) results of all categories on the KITTI dataset.
+category
+Car
+Pedestrian
+Cyclist
+model
+APloc

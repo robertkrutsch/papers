@@ -1,0 +1,657 @@
+Optical Flow in Mostly Rigid Scenes
+Jonas Wulff
+Laura Sevilla-Lara
+Michael J. Black
+Max Planck Institute for Intelligent Systems, T¨ubingen, Germany
+{jonas.wulff,laura.sevilla,black}@tue.mpg.de
+Figure 1: Overview. From three frames (a) our method computes a segmentation of the scene into static (red) and moving
+(blue) regions (b), the depth structure of the scene (c) , and the optical ﬂow (d). (e) shows ground truth ﬂow.
+Abstract
+The optical ﬂow of natural scenes is a combination of
+the motion of the observer and the independent motion
+of objects. Existing algorithms typically focus on either
+recovering motion and structure under the assumption of
+a purely static world or optical ﬂow for general uncon-
+strained scenes. We combine these approaches in an opti-
+cal ﬂow algorithm that estimates an explicit segmentation of
+moving objects from appearance and physical constraints.
+In static regions we take advantage of strong constraints to
+jointly estimate the camera motion and the 3D structure of
+the scene over multiple frames. This allows us to also regu-
+larize the structure instead of the motion. Our formulation
+uses a Plane+Parallax framework, which works even un-
+der small baselines, and reduces the motion estimation to
+a one-dimensional search problem, resulting in more ac-
+curate estimation.
+In moving regions the ﬂow is treated
+as unconstrained, and computed with an existing optical
+ﬂow method. The resulting Mostly-Rigid Flow (MR-Flow)
+method achieves state-of-the-art results on both the MPI-
+Sintel and KITTI-2015 benchmarks.
+1. Introduction
+The world is composed of things that move and things that
+do not. The 2D motion ﬁeld, which is the projection of the
+3D scene motion onto the image plane, arises from observer
+motion relative to the static scene and the independent mo-
+tion of objects. A large body of work exists on estimating
+camera motion and scene structure in purely static scenes,
+generally referred to as Structure-from-Motion (SfM). On
+the other hand, methods that estimate general 2D image
+motion, or optical ﬂow, make much weaker assumptions
+about the scene. Neither approach fully exploits the mixed
+structure of natural scenes. Most of what we see in such
+scenes is static - houses, roads, desks, etc.1 Here, we refer
+to these static parts of the scene as the rigid scene, or rigid
+regions. At the same time, moving objects like people, cars,
+and animals make up a small but often important part of
+natural scenes. Despite the long history of both SfM and
+optical ﬂow, no state-of-the art optical ﬂow method synthe-
+sizes both into an algorithm that works on general scenes
+like those in the MPI-Sintel dataset [9] (Fig. 1).
+In this
+work, we propose such a method to estimate optical ﬂow
+in video sequences of generic scenes that contain moving
+objects within a rigid scene.
+For the rigid scene, the camera motion and depth struc-
+ture fully determine the motion, which forms the basis of
+SfM methods. Modern optical ﬂow benchmarks, however,
+are full of moving objects such as cars or bicycles in KITTI,
+or humans and dragons in Sintel. Assuming a fully static
+scene or treating these moving objects as outliers is hence
+not viable for optical ﬂow algorithms; we want to recon-
+struct ﬂow everywhere.
+Independent motion in a scene typically arises from well
+deﬁned objects with the ability to move. This points to a
+possible solution. Recently, convolutional neural networks
+(CNN) have achieved good performance on detecting and
+segmenting objects in images, and have been successfully
+1In KITTI-2015 and MPI-Sintel, independently moving regions make
+incorporated into optical ﬂow methods [4, 33]. Here we
+take a slightly different approach. We modify a common
+CNN and train it on novel data to obtain a rigidity score
+from the labels, taking into account that some objects (e.g.
+humans) are more likely to move than others (e.g. houses).
+This score is combined with additional motion cues to ob-
+tain an estimate of rigid and independently moving regions.
+After partitioning the scene into rigid and moving re-
+gions, we can deal with each appropriately. Since the mo-
+tion of moving objects can be almost arbitrary, it is best
+computed using a classical unconstrained ﬂow method. The
+ﬂow of the rigid scene, on the other hand, is extremely re-
+stricted, and only depends on the depth structure and the
+camera motion and calibration.
+In theory, one could use
+an existing SfM algorithm to reconstruct the camera motion
+and the 3D structure of the scene, and project this struc-
+ture back to obtain the motion of the rigid scene regions.
+Two factors make this hard in practice. First, the number
+of frames usually considered in optical ﬂow is small; most
+methods only work on two or three consecutive frames.
+SfM algorithms, on the other hand, require tens or hun-
+dreds of frames to work reliably. Second, SfM algorithms
+require large camera baselines in order to reliably estimate
+the fundamental matrices. In video sequences, large base-
+lines are rare, since the camera usually translates very little
+between frames. An exception to this are automotive sce-
+narios such as the KITTI benchmark, where the recording
+car often moves rapidly and the frame rate is low.
+Since full SfM is unreliable in general ﬂow scenarios, we
+adopt the Plane+Parallax (P+P) framework [17, 18, 31] In
+this framework, frames are registered to a common plane,
+which is aligned in all images after the registration. This
+removes the motion caused by camera rotation and simple
+intrinsic camera parameter changes, leaving parallax as the
+sole source of motion. Since all parallax is oriented towards
+or away from a common focus of expansion in the frame,
+computing the parallax is reduced to a 1D search problem
+and therefore easier than computing the full optical ﬂow.
+Here we show that using the P+P framework brings an
+additional advantage:
+the parallax can be factored into a
+structure component, which is independent of the camera
+motion and constant across time, and a temporally varying
+camera component, which is a single number per frame.
+We integrate the structure information across time; by deﬁ-
+nition, the structure of the rigid scene does not change. By
+combining the structure information from multiple frames,
+our algorithm generates a better structure component for all
+frames, and ﬁlls in areas that are unmatched in a single pair
+of frames due to occlusion.
+Additionally, the relationship between the structure com-
+ponent and the parallax (and thus, the optical ﬂow) enables
+us to regularize the ﬂow in a physically meaningful way,
+since regularizing the structure implicitly regularizes the
+ﬂow. We use a robust second-order regularizer, which cor-
+responds to a locally planar prior.
+We integrate the regularization into a novel objec-
+tive function measuring the photometric error across three
+frames as a function of the structure and camera motion.
+This allows us to optimize the structure and also to recover
+from poor initializations. We call the method MR-Flow for
+Mostly-Rigid Flow and show an overview in Fig. 2.
+We test MR-Flow on MPI-Sintel
+[9] and KITTI
+2015 [24] (Fig. 1). Among published monocular methods,
+at time of writing, we achieve the lowest error on MPI-
+Sintel on both passes; on KITTI-2015, our accuracy is sec-
+ond only to [4], a method speciﬁcally designed for automo-
+tive scenarios. Our code, the trained CNN, and all data is
+available at [1].
+In summary, we present three main contributions. First,
+we show how to segment the scene into rigid regions and
+independently moving objects, allowing us to estimate the
+motion of each type of region appropriately. Second, we
+extend previous plane+parallax methods to express the ﬂow
+in the rigid regions via its depth structure. This allows us to
+regularize this structure instead of the ﬂow ﬁeld and to com-
+bine information across more than two frames. Third, we
+formulate the motion of the rigid regions as a single model.
+This allows us to iterate between estimating the structure
+and to recover from unstable initializations.
+2. Previous work
+SfM and optical ﬂow have both made signiﬁcant, but mostly
+independent, progress. Roughly speaking, SfM methods re-
+quire purely rigid scenes and use sparse point matches, wide
+baselines between frames, solve for accurate camera intrin-
+sics and extrinsics, and exploit bundle adjustment to opti-
+mize over many views at once. In contrast, optical ﬂow is
+applied to scenes containing generic motion, exploits con-
+tinuous optimization, makes weak assumptions about the
+scene (e.g. that it is piecewise smooth), and typically pro-
+cesses only pairs of video frames at a time.
+Combining optical ﬂow and SfM. There have been
+many attempts to combine SfM and ﬂow methods, dating
+to the 80’s [12]. For video sequences from narrow-focal-
+length lenses, the estimation of the camera motion is chal-
+lenging, as it is easy to confuse translation with rotation and
+difﬁcult to estimate the camera intrinsics [13].
+More recently there have been attempts to combine SfM
+and optical ﬂow [4, 27, 36, 38, 39]. The top monocular op-
+tical ﬂow method on the KITTI-2012 benchmark estimates
+the fundamental matrix and computes ﬂow along the epipo-
+lar lines [39]. This approach is limited to fully rigid scenes.
+Wedel et al. [38] compute the fundamental matrix and reg-
+ularize optical ﬂow to lie along the epipolar lines. If they
+detect independent motion, they revert to standard optical
+ﬂow for the entire frame.
+In contrast, we segment static
+Figure 2: Algorithm overview. Given a triplet of frames, we ﬁrst compute initial ﬂow and an initial rigidity estimate based
+on a semantic segmentation CNN. The images are then aligned to a common plane, and the initial ﬂow is converted to an
+estimate of the structure in the rigid scene using the Plane+Parallax framework. Where the P+P constraints are violated, the
+rigidity is reﬁned, while at the same time the structure is reﬁned using a variational optimization. To obtain the ﬁnal ﬂow
+estimate, the initial ﬂow is used in moving regions, while the reﬁned structure induces the ﬂow in the rigid scene.
+from moving regions and use appropriate constraints within
+each type of region. Roussos et al. [30] assume a known
+calibrated camera and solve for depth, motion and segmen-
+tation of a scene with moving objects. They perform batch
+processing on sequences of about 30 frames in length, mak-
+ing this more akin to SfM methods. While they have im-
+pressive results, they consider relatively simple scenes and
+do not evaluate ﬂow accuracy on standard benchmarks.
+Plane+Parallax. P+P methods were developed in the
+mid-90’s [17, 31]. The main idea is that stabilizing two
+frames with a planar motion (homography) removes the
+camera rotation and simpliﬁes the geometric reasoning
+about structure [19, 35].
+In the stabilized pair, motion is
+always oriented towards or away from the epipole and cor-
+responds to parallax, which is related to the distance of the
+point from the plane in the 3D scene.
+Estimating a planar homography can be done robustly
+and with more stability than estimating the fundamental
+matrix [18, 19]. While one is not able to estimate met-
+ric depth, the planar stabilization simpliﬁes the matching
+process, turning the 2D optical ﬂow estimation problem
+into a 1D problem that is equivalent to stereo estimation.
+Given the practical beneﬁts, one may ask why P+P meth-
+ods are not more prevalent in the leader boards of optical
+ﬂow benchmarks. The problem is that such methods work
+only for rigid scenes. Making the P+P approach usable in
+general natural scenes is one of our main contributions.
+Moving region segmentation. There have been sev-
+eral attempts to segment moving scenes into regions corre-
+sponding to independently moving objects by exploiting 3D
+motion cues and epipolar motion [2, 34, 37]. Several meth-
+ods use the P+P framework to detect independent motions,
+but those methods typically only do detection and not ﬂow
+estimation, and are often applied to simple scenes where
+there is a dominant motion like the ground plane and small
+moving objects [15, 32, 40]. Irani et al. [16] develop mosaic
+representations that include independently moving objects
+but do not explicitly compute their ﬂow. Given two frames
+as input, Ranftl et al. [28] segment a general moving scene
+into piecewise-rigid components and reason about the depth
+and occlusion relationships. While they produce impressive
+depth estimates, they rely on accurate ﬂow estimates be-
+tween the frames and do not reﬁne the ﬂow itself.
+Combining multiple ﬂow methods. There is also ex-
+isting work on combining motion estimates from different
+algorithms into a single estimate [21, 22], but these do not
+attempt to fuse rigid and general motion. Bergen et al. [6]
+deﬁne a framework for describing optical ﬂow problems us-
+ing different constraints from rigid motion to generic ﬂow,
+but do not combine these models into a single method.
+Recent work combines segmentation and ﬂow. Sevilla
+et al. [33] perform semantic segmentation and use different
+models for different semantic classes. Unlike them, we use
+semantic segmentation to estimate the rigid scene and then
+impose stronger geometric constraints in these regions. Hur
+and Roth [14] integrate semantic segmentation over time,
+leading to more accurate ﬂow estimation for objects and
+better segmentation performance.
+Most similar to our approach is [4], which ﬁrst segments
+the scene into objects using a CNN. A fundamental matrix
+is then computed and used to constrain the ﬂow within each
+object. Our work is different in a number of important ways.
+(i) Their approach is sequential and cannot recover from an
+incorrect fundamental matrix estimate. We propose a uni-
+ﬁed objective function where the parts of the solution in-
+form and improve each other. (ii) [4] relies exclusively on
+the CNN to segment moving regions. While this works in
+speciﬁc scenarios such as automotive, it may not general-
+ize to new scenes. We combine semantic segmentation and
+motion to classify rigid regions and thus require less accu-
+rate semantic rigidity estimates. This makes our algorithm
+both more robust and more general, as demonstrated by the
+fact that in contrast to [4] we evaluate on the challenging
+MPI-Sintel benchmark.
+(iii) [4] requires moving objects
+to be rigid (i.e., rigidly moving vehicles) and assumes a
+small rotational component of the egomotion. This works
+for KITTI-2015 but does not apply to more general scenes.
+(iv) [4] uses only two frames at a time and extrapolates into
+occlusions. Our model combines information across time,
+and thus it is able to compute accurate ﬂow in occlusions.
+3. Plane + Parallax background
+The P+P paradigm has been used in rigid scene analysis for
+a long time. Since it forms the foundation of our algorithm,
+we brieﬂy review the parts that are important for this work
+and refer the reader to [18, 31] for more details.
+The core idea of P+P is to align two or more images to a
+common plane Π, so that
+where x and x′ represent a point in the reference frame and
+the corresponding point in another frame of the sequence,
+xh denotes x in homogeneous coordinates, H is the ho-
+mography mapping the image of Π between frames, and
+hai = (a1/a3, a2/a3) is the perspective normalization.
+This alignment removes the effects of camera rotation
+and the effect of camera calibration change (such as a zoom)
+between the pair of frames [41]. Getting rid of rotation
+is especially convenient, since the ambiguity between ro-
+tation and translation in case of small displacements is a
+major source of numerical instabilities in the estimation of
+the structure of the scene.
+When computing optical ﬂow between aligned images,
+the ﬂow of the pixels corresponding to points on the plane
+is zero2. For an image point x corresponding to a 3D point
+X off the plane, the residual motion is given as [31]
+where d(C2) is the distance of the second camera center to
+Π, z is the distance of point X to the ﬁrst camera, Tz is
+the depth displacement of the second camera, d(X) is the
+distance from point X to Π, and e is the common focus of
+expansion that coincides with the epipole corresponding to
+the second camera. This representation has two main ad-
+vantages. First, instead of an arbitrary 2D vector, each ﬂow
+is conﬁned to a line; therefore computing the optical ﬂow is
+reduced to a 1D search problem. Second, when considering
+the ﬂow of a pixel to different frames t which are registered
+to the same plane, Eq. (2) can be written as
+2Note that the plane does not have to correspond to a physical surface,
+but merely to a rigid, “virtual” plane.
+where A(x) = d(X)/z is the structural component of the
+ﬂow ﬁeld, which is independent of t. It is hence convenient
+to accumulate structure over time via A. bt = Tz/d(C2),
+on the other hand, encodes the camera motion to frame t,
+and is a single number per frame. To simplify notation,
+we express the residual ﬂow in terms of the parallax ﬁeld
+w(x, t), so that
+We can thus parametrize the motion across multiple
+frames as a common structure component A and per-frame
+parameters θt = {Ht, bt, et}. Since we use the center frame
+of a triplet of frames as the reference and compute the mo-
+tion to the two adjacent frames, from here on we denote the
+two parameter sets as θ+ = {H +, b+, e+} for the forward
+direction and θ− for the backward direction.
+4. Initialization
+Given a triplet of images and a coarse, image-based rigidity
+estimation (described in Sec. 5.1), the goal of our algorithm
+is to compute (i) a segmentation into rigid regions and mov-
+ing objects and (ii) optical ﬂow for the full frame. We start
+by computing initial motion estimates using an existing op-
+tical ﬂow method [25]. For a triplet of images {I −, I, I +},
+we compute four initial ﬂow ﬁelds, u+
+0 from I to I + and
+u−
+0 from I to I −, and their respective backwards ﬂows ¯u+
+0
+and ¯u−
+0 . Due to the non-convex nature of our model (see
+Sec. 6) we need to compute good initial estimates for the
+P+P parameters ˆθ+, ˆθ−, visibility maps V +, V − denoting
+which pixels are visible and which are occluded in forward
+and backward directions, and an initial structure estimate ˆA.
+Initial alignment and epipole detection. First we com-
+pute the planar alignments (homographies) between frames.
+Since P+P only holds in the rigid scene, in this section we
+only consider points that are marked as rigid by the initial
+semantic rigidity estimation. While computing a homogra-
+phy between two frames is usually easy, two factors make it
+challenging in our case: (i) when aligning multiple frames,
+the plane to which the frames are aligned has to be equiva-
+lent for each frame for P+P to work, and (ii) the 3D points
+corresponding to the four points used to estimate the homo-
+graphies have to be coplanar for Eq. (3) to hold.
+To compute homographies obeying these constraints, we
+use a two-stage process. First, we compute initial homogra-
+phies ˜H +, ˜H − using RANSAC. In each iteration, the same
+random sample is used to ﬁt both ˜H +, ˜H −, and a point is
+considered an inlier only when its reprojection error is low
+in both forward and backward directions. This ensures that
+the computed homographies belong to the same plane. If
+a computed homography displaces the images corners by
+more than half the image size, it is considered invalid. If no
+valid homography is found, our method returns the initial
+ﬂow ﬁeld. This happens on average in 2% of the frames.
+The second step is to ensure the coplanarity of the points
+inducing the homographies. For this, we can turn around
+Eq. (3), and simultaneously reﬁne the homographies and
+estimate the epipoles e{+,−} so that Eq. (3) holds. Let
+ur = hH(x +u0)hi − x be the residual ﬂow after regis-
+tration with H. Each pair x, ur deﬁnes a residual ﬂow line,
+and in the noise-free case, the epipole e is simply the in-
+tersection of these lines. Since the computed optical ﬂow
+contains noise, we compute the epipole using the method
+described in [23], which we found to be sufﬁciently robust
+to noise. Therefore, e is a function of the optical ﬂow and
+of the computed homography. Enforcing coplanarity of the
+homographies is now equivalent to enforcing that the resid-
+ual ﬂow lines in both directions each pass through a com-
+mon point as well as possible. The reﬁned homographies
+are thus computed as
+with oz(x) deﬁning the orthogonal distance of the resid-
+ual ﬂow line at x to ez. While Eq. (5) is highly non-
+linear, we found that initializing with ˜H {+,−} and using
+a standard non-linear minimization package such as L-
+BFGS [26] produced results that greatly improved the ﬁ-
+nal ﬂow error compared to using the unreﬁned homogra-
+phies ˜H {+,−}. Throughout the paper, we use the Lorentzian
+compute the scaling parameter σ via the MAD [7]. The ini-
+tial epipolar estimates ˆe{+,−} are computed using ˆH {+,−}.
+To initialize b+, b−, we ﬁrst compute the parallax ﬁelds
+by projecting ur onto the parallax ﬂow lines,
+Note that Eq. (3) contains a scale ambiguity between the
+structure A and the camera motion parameter b. Therefore,
+we can freely choose one of b+, b−, which only affects the
+scaling of A; we choose ˆb+ so that the initial forward struc-
+ture A+ deﬁned by Eq. (7) has a MAD of 1. Since A− is a
+function of b− and should be as close as possible to A+, we
+obtain the estimate ˆb− by solving
+Occlusion estimation. Pixels can become occluded in
+both directions. In occluded regions, we expect the ﬂow to
+be wrong, since it can at best be extrapolated. Given the
+initial ﬂow ﬁelds, we compute the visibility masks V +(x),
+V −(x) using a forward-backward check [20].
+Initial structure estimation. Using the computed struc-
+ture maps ˆA{+,−} and visibility maps V {+,−}, the initial
+estimate for the full structure is
+5. Rigidity estimation
+Different cues provide different, complementary informa-
+tion about the rigidity of a region. The semantic category
+of an object tells us whether it is capable of independent
+motion, rigid scene parts have to obey the parallax con-
+straint (3), and the 3D structure of rigid parts cannot change
+over time. We integrate all of them in a probabilistic frame-
+work to estimate a rigidity map of the scene, marking each
+pixel as belonging to the rigid scene or to a moving object.
+5.1. Semantic rigidity estimation
+We leverage the recent progress of CNNs for semantic seg-
+mentation to predict rigid and independently moving re-
+gions in the scene. In short, we model the relationship be-
+tween an object’s appearance and its ability to move.
+Obviously object appearance alone does not fully deter-
+mine whether something is moving independently. A car
+may be moving, if driving, or static, if parked. However,
+for the purpose of motion estimation, not all errors are the
+same. Assuming an object is static when in reality it is
+not imposes false constraints that hurt the estimation of the
+global motion, while assuming a rigid region is indepen-
+dently moving does little harm. Thus, when in doubt, we
+predict a region to be independently moving.
+The main optical ﬂow benchmarks, KITTI-2015 and
+MPI-Sintel, provide different training data. While the
+essence of our model is the same for both, our training pro-
+cess varies to adapt to the available data. In both cases we
+start with the DeepLab architecture [10], pre-trained on the
+21 classes of Pascal VOC [11], substitute all fully connected
+layers with convolutional layers, and densify the predic-
+tions [33]. Both networks produce a rigidity score between
+0 and 1 which we call the semantic rigidity probability ps.
+MPI-Sintel contains many objects that are not contained
+in Pascal VOC, such as dragons. Thus using the CNN to
+predict a semantic segmentation is not possible. Also, no
+ground truth semantic segmentation is provided, so training
+a CNN to recognize these categories is not possible. How-
+ever, the dataset provides ground truth camera calibration,
+depth and optical ﬂow for the training set. With these we
+estimate rigidity maps that we take as ground truth. We do
+this by computing a fully rigid motion ﬁeld, using the depth
+and camera calibration, and comparing it with the ground
+truth ﬂow ﬁeld. Pixels are classiﬁed as independently mov-
+ing if these two ﬁelds differ by more than a small amount.
+We make this data publicly available [1].
+We modify the last layer of the CNN to predict 2 classes,
+rigid and independently moving, instead of the original 21.
+We train using the last 30 frames of each sequence in the
+training set, and validate on the ﬁrst 5 frames of each se-
+quence. Sequences shorter than 50 frames are only included
+in the validation set. At test time, the probability of being
+rigid is computed at each pixel and then thresholded. Ex-
+amples of the estimated rigidity maps can be seen in Fig. 3.
+In KITTI 2015, some independently moving objects
+(e.g. people) are masked out from the depth and ﬂow ground
+truth. Therefore, the approach we followed for MPI-Sintel
+cannot be used. The objects in KITTI, however, appear in
+standard datasets like the enriched Pascal VOC. We mod-
+ify the last layer of the network to predict the 22 classes
+that may be present in KITTI (e.g. person or road) similar
+to [33]. We then classify an object as moving if it has the
+ability to move independently (e.g. cars, or buses) and as
+rigid otherwise. Training details appear in the Sup. Mat. [1].
+Note that the same approach we use for KITTI can be
+used for general video sequences by using a generic pre-
+trained semantic segmentation network together with a def-
+inition of which semantic classes can move and which are
+static. This allows our method to directly beneﬁt from ad-
+vances in semantic segmentation and novel, ﬁne-grained se-
+mantic segmentation datasets.
+5.2. Physical rigidity estimation
+For objects that have not been seen previously or that exhibit
+phenomena like motion blur, the semantic rigidity may be
+wrong. Hence, we use two additional cues, motion direction
+and temporal consistency of the structure.
+Moving regions from motion direction. A simple ap-
+proach to classify a pixel as rigid or independently moving
+is to test whether its parallax ﬂow points to the epipole [15].
+Here, we employ a probabilistic framework for this classi-
+ﬁcation. Due to space limitations, we just present the ﬁnal
+result here; for the derivation, please see the Sup. Mat. [1].
+For a given point x, our model assumes the measured
+corresponding point x′ = x + ur to have a Gaussian error
+distribution around the true correspondence with covariance
+matrix Σ = σ2
+dI. Let c = kurk and α be the angle between
+ur and the line connecting x to e. Assuming a uniform dis-
+tribution of motion directions for moving objects, the like-
+lihood of a point being rigid is then given as
+with t = c2/(4σ2
+d) and I0(x) the modiﬁed Bessel function
+of the ﬁrst kind. Solving for both forward and backward di-
+rections yields the direction-based rigidity probabilities p+
+d
+and p−
+d . These are then combined into the ﬁnal direction-
+based rigidity probability using the visibility maps
+Moving regions from structure consistency. Another cue
+for rigidity is the temporal consistency of the structure. This
+is particularly helpful where semantics and motion direction
+cannot disambiguate the rigidity, for example when an ob-
+ject such as a car moves parallel to the observer’s motion.
+Recall that according to the P+P framework the structure
+of the rigid scene is independent of time. In rigid regions
+that are visible in all frames, we assume the forward and
+backward structure A+ and A− to be close to each other. A
+structure based rigidity estimate ps can thus be computed as
+otherwise.
+Combined rigidity probability from motion. The motion-
+based probabilities pd, ps can be seen as orthogonal. Sur-
+faces that move independently along the parallax direction
+are considered to be rigid according to pd, while surfaces
+that move by small amounts orthogonal to the parallax di-
+rection are considered to be rigid according to ps. Hence,
+for a region to be considered actually rigid, we require both
+pd and ps to be high. The ﬁnal motion-based rigidity prob-
+ability pm is
+5.3. Combining rigidity estimates
+The previously computed rigidity probabilities pc, pm yield
+per-pixel rigidity probabilities. To combine those into a co-
+herent estimate, we ﬁrst compute a rigidity unary
+and the corresponding energy
+otherwise,
+with R(x) = 1 if x is rigid, and 0 otherwise. Since we
+expect the rigidity to be spatially coherent, we estimate the
+full labelling by solving ˆR =
+arg min
+Figure 3: Results of rigidity estimation on the test sets of MPI-Sintel and KITTI-2015. From an image (a), we estimate a
+semantic rigidity (b) and combine it with the direction-based rigidity (c) and the structure-based rigidity (d) to obtain the ﬁnal
+estimate (e). Likely rigid regions are red, likely moving regions are blue.
+Figure 3 (top) shows the importance of combining dif-
+ferent cues to recover from errors and accurately estimate
+the rigidity. The semantic estimation (b) misses a large part
+of the dragon’s head, while both the direction-based (b) and
+structure-based estimations misclassify different segments
+of the scene. Combining cues yields a good estimate (e).
+6. Model and optimization
+Model. The ﬁnal structure should fulﬁll a number of cri-
+teria. First, as in the classical ﬂow approach, warping the
+images using the ﬂow induced by the structure should re-
+sult in a low photometric error. Second, we assume that our
+initial ﬂow ﬁelds are reasonable, hence, the ﬁnal structure
+should be similar to the structures deﬁned by the initial for-
+ward and backward ﬂow. Third, the structure directly cor-
+responds to the surface structure of the world, and thus we
+can regularize it using a locally planar model. This implic-
+itly regularizes the ﬂow in a more geometrically meaningful
+way than traditional priors on the ﬂow.
+Under these considerations, the full model for the motion
+of the rigid parts of the scene is deﬁned as E(A, θ+, θ−) =
+Ed is the photometric error, modulated by the estimated vis-
+ibilities in forward and backward directions:
+where I −
+a are augmented versions of I −, I, I +, i.e.
+stacked images containing the respective grayscale images
+and the gradients in x and y directions. The warping func-
+tion s(x, A, θ) deﬁnes the correspondence of x according to
+the structure A and the P+P parameters θ,
+The consistency term Ec encourages similarity between A
+and A{+,−}.
+To ensure a constant error for all A ∈ [A−, A+], we use the
+Charbonnier function as the robust penalty ρc.
+The locally-planar regularization uses a 2nd order prior,
+Here, wx, wy are again the modulation terms from [29],
+and, using a slight abuse of notation, ∇xx, ∇xy, ∇yy are the
+second derivative operators. Since the second order prior by
+itself is highly sensitive to noise, we add a ﬁrst order prior
+where ∇x, ∇y are the ﬁrst derivative operators in the hori-
+zontal and vertical direction respectively.
+Optimization. To minimize the energy (17) we employ
+an iterative scheme, and alternate between optimizing for
+A with θ{+,−} ﬁxed, and for θ{+,−} with A ﬁxed. When
+optimizing A, we use a standard warping-based variational
+optimization [8] with 1 inner and 5 outer iterations and no
+downscaling. To optimize for θ, we ﬁrst optimize for H, b
+using L-BFGS and then recompute e as described in Sec. 4.
+We use two iterations, since we found that more do not de-
+crease the error signiﬁcantly. This yields the ﬁnal estimates
+¯A, ¯θ+, ¯θ− for the structure and the P+P parameters.
+Due to the non-convex nature of (17), a global optimum
+is not guaranteed. However, in practice we found that our
+initializations are close to a good optimum, and hence our
+optimization procedure works well.
+Final ﬂow estimation. Finally, we convert the estimated
+structure ¯A into an optical ﬂow ﬁeld
+In the moving regions, we use the initial forward ﬂow u+
+0 ,
+and compose the full ﬂow ﬁeld as
+Figure 4: Results on MPI-Sintel and KITTI. From left to right: Overlaid input images, rigidity estimation, estimated structure
+(moving regions are masked in purple), estimated optical ﬂow, comparison to initial ﬂow (green areas denote improvements).
+Sintel
+Clean
+Final
+Train Test Train Test Train
+Test
+7. Experiments
+On MPI-Sintel, our method currently outperforms all
+published works.
+In particular, the structure estimation
+gives ﬂow in occluded regions, producing the lowest errors
+in the unmatched regions of any published or unpublished
+work. On a 2.2 GHz i7 CPU, our method takes on average 2
+minutes per triplet of frames without the initial ﬂow compu-
+tation, 74s for the initialization and rigidity estimation, and
+46s for the optimization.
+In KITTI-2015 the scenes are simpler and contain only
+automotive situations; however, the images suffer from ar-
+tifacts such as noise and overexposures. Among published
+monocular methods, MR-Flow is second after [4], which is
+designed for automotive scenarios and not tested on Sintel.
+8. Conclusion
+We have demonstrated an optical ﬂow method that segments
+the scene and improves accuracy by exploiting rigid scene
+structure. We combine semantic and motion information
+to detect independently moving regions, and use an exist-
+ing ﬂow method to compute the motion of these regions. In
+rigid regions of the scene, the ﬂow is directly constrained by
+the 3D structure of the world. This allows us to implicitly
+regularize the ﬂow by constraining the underlying structure
+to a locally planar model. Furthermore, since the structure
+is temporally coherent, we combine information from mul-
+tiple frames. We argue that this uses the right constraints
+in the right place and produces accurate ﬂow in challenging
+situations and competitive results on Sintel and KITTI.
+This opens several directions for future work. First, the
+rigidity estimation could be improved using better inference
+algorithms and training data. Jointly reﬁning the foreground
+ﬂow with the rigid ﬂow estimation could improve perfor-
+mance. Our method could also use longer sequences, and
+enforce temporal consistency of the rigidity maps.
+Acknowledgements.
+Planck ETH Center for Learning Systems.
+JW and LS were supported by the Max
+References
+[2] G. Adiv. Determining three-dimensional motion and struc-
+ture from optical ﬂow generated by several moving objects.
+IEEE Transactions on Pattern Analysis and Machine Intelli-
+gence, PAMI-7(4):384–401, July 1985. 3
+[7] M. J. Black and G. Sapiro. Edges as outliers: Anisotropic
+smoothing using local image statistics. In M. Nielsen, P. Jo-
+hansen, O. F. Olsen, and J. Weickert, editors, Scale-Space
+Theories in Computer Vision: Second International Con-
+ference, Scale-Space’99 Corfu, Greece, September 26–27,
+1999 Proceedings, pages 259–270, Berlin, Heidelberg, 1999.
+Springer Berlin Heidelberg. 5
+continuous optimization for optical ﬂow estimation.
+CVPR, pages 1–8, June 2008. 3
+[28] R. Ranftl, V. Vineet, Q. Chen, and V. Koltun. Dense monoc-
+ular depth estimation in complex dynamic scenes.
+In The
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion (CVPR), June 2016. 3
+[30] A. Roussos, C. Russell, R. Garg, and L. Agapito. Dense
+multibody motion estimation and reconstruction from a
+handheld camera.
+In IEEE Intl Symposium on Mixed and
+Augmented Reality (ISMAR 2012), 2012. 3
+[35] B. Triggs. Plane + parallax, tensors and factorization.
+[36] L. Valgaerts, A. Bruhn, and J.Weickert. A variational model
+for the joint recovery of the fundamental matrix and the op-
+tical ﬂow. In DAGM, 2008. 2

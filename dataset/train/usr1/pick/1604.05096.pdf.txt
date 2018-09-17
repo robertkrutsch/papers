@@ -1,0 +1,480 @@
+Pixel-level Encoding and Depth Layering for
+Instance-level Semantic Labeling
+1Daimler AG R&D, 2University of Freiburg, 3TU Darmstadt
+jonas.uhrig@daimler.com
+Abstract. Recent approaches for instance-aware semantic labeling have
+augmented convolutional neural networks (CNNs) with complex multi-
+task architectures or computationally expensive graphical models. We
+present a method that leverages a fully convolutional network (FCN)
+to predict semantic labels, depth and an instance-based encoding using
+each pixel’s direction towards its corresponding instance center. Subse-
+quently, we apply low-level computer vision techniques to generate state-
+of-the-art instance segmentation on the street scene datasets KITTI and
+Cityscapes. Our approach outperforms existing works by a large margin
+and can additionally predict absolute distances of individual instances
+from a monocular image as well as a pixel-level semantic labeling.
+Introduction
+The task of visual semantic scene understanding is mainly tackled from two op-
+posing facets: pixel-level semantic labeling [4, 21, 22] and bounding-box object
+detection [11, 12, 23, 24]. The ﬁrst assigns each pixel in an image with a se-
+mantic label segmenting the semantically connected regions in the scene. Such
+approaches work well with non-compact (background ) classes such as buildings
+or ground, yet they do not distinguish individual object instances. Object de-
+tection aims to ﬁnd all individual instances in the scene and describes them via
+bounding boxes. Therefore, the latter provides a rather coarse localization and
+is restricted to compact (object) classes such as cars or humans.
+Recently, instance-level semantic labeling gained increasing interest [8, 19,
+34, 35]. This task is at the intersection of both challenges. The aim is to combine
+the detection task with instance segmentation. Such a representation allows for
+a precise localization, which in turn enables better scene understanding. Espe-
+cially in the domain of robotics and autonomous vehicles, instance-level semantic
+Fig. 1: Example scene representation as obtained by our method: instance seg-
+mentation, monocular depth estimation, and pixel-level semantic labeling.
+Jonas Uhrig, Marius Cordts, Uwe Franke, Thomas Brox
+Fig. 2: From a single image, we predict 3 FCN outputs: semantics, depth, and
+instance center direction. Those are used to compute template matching score
+maps for semantic categories. Using these, we locate and generate instance pro-
+posals and fuse them to obtain our instance segmentation.
+segmentation enables an explicit occlusion reasoning, precise object tracking and
+motion estimation, as well as behavior modeling and prediction.
+Most state-of-the-art methods build upon a fully convolutional network (FCN)
+[21]. Recent approaches typically add post-processing, for example, based on
+conditional random ﬁelds (CRFs) [34, 35]. Other methods score region propos-
+als for instance segmentation [7, 14] or object detection [11, 12, 23, 24], or use a
+multi-stage neural network for these tasks [8, 19].
+In this work, we focus on street scene understanding and use a single monoc-
+ular image to simultaneously obtain a holistic scene representation, consisting of
+a pixel-level semantic labeling, an instance-level segmentation of traﬃc partici-
+pants, and a 3D depth estimation for each instance. We leverage an FCN that
+yields powerful pixel-level cues consisting of three output channels: a semantic
+class, the direction to the object center (where applicable) and the object dis-
+tance (where applicable). Scene understanding is mainly due to the network and
+post-processing with standard computer vision methods is suﬃcient to obtain a
+detailed representation of an instance-aware semantic segmentation, c.f . Figs. 1
+and 2. Our method signiﬁcantly outperforms state-of-the-art methods on the
+street scene datasets KITTI [10] and Cityscapes [6].
+2 Related Work
+For the task of instance-level semantic labeling, there exist two major lines of
+research. The ﬁrst leverages an over-complete set of object proposals that are
+either rejected, classiﬁed as an instance of a certain semantic class, and reﬁned
+to obtain an instance segmentation. Common to all such methods is that the
+performance is depending on the quality of these proposals, since they cannot
+recover from missing instances in the proposal stage. Generally, such approaches
+Pixel Encoding and Depth Layering for Instance-level Semantic Labeling
+tend to be slow since all proposals must be classiﬁed individually. These proper-
+ties cause inaccurate proposals to limit the performance of such methods [6, 16].
+Our method belongs to the category of proposal-free methods, where the seg-
+mentation and the semantic class of object instances are inferred jointly.
+Proposal-based instance segmentation. Driven by the success of deep learn-
+ing based object detectors such as R-CNN [12] or its variants [11, 24, 25], recent
+methods rely on these detections for instance segmentation. Either the underly-
+ing region proposals, such as MCG [2], are directly used as instance segments [6,
+7, 14], or the bounding boxes are reﬁned to obtain instance masks [5, 13]. Instead
+of bounding boxes, [18] uses a layered pictorial structure (LPS) model, where
+shape exemplars for object parts are mapped to the image in a probabilistic way.
+This yields an initial proposal for the object’s pose and shape, which is reﬁned
+using appearance cues. Using a bank of object detectors as proposals, [32] in-
+fers the instance masks via occlusion reasoning based on discrete depth layers.
+In [30], pixel-level semantic labels are used to score object candidates and vice
+versa in an alternating fashion, while also reasoning about occlusions and scene
+geometry. Based on proposals that form a segmentation tree, an energy function
+is constructed in [29] and its solution yields the instance segmentation.
+Recently, [8] extended the R-CNN for instance segmentation with a multi-
+task network cascade. A fully convolutional network combined with three classi-
+ﬁcation stages produces bounding-box proposals, reﬁnes these to segments, and
+ranks them to obtain the ﬁnal instance-level labeling. They achieve excellent
+performance on PASCAL VOC [9] and MS COCO [20].
+Proposal-free instance segmentation. Pixel-level semantic labeling based on
+neural networks has been very successful [4, 17, 21, 33, 36]. This triggered interest
+in casting also instance segmentation directly as a pixel labeling task. In [27],
+the network predicts for each pixel, whether it lies on an object boundary or not,
+however, requiring a rather delicate training. Using a long short-term memory
+(LSTM) network [15], instance segmentations can be sequentially sampled [26].
+In [34, 35], instances are encoded via numbers that are further constrained
+to encode relative depth ordering in order to prevent arbitrary assignments. An
+FCN predicts these IDs at each pixel and a subsequent Markov Random Field
+(MRF) improves these predictions and enforces consistency. However, such a
+method is limited to scenes, where a clear depth ordering is present, e.g. a single
+row of parking cars, and the maximum number of instances is rather low.
+The proposal-free network (PFN) [19] is a CNN that yields a pixel-level se-
+mantic labeling, the number of instances in the scene, and for each pixel the
+parameters of a corresponding instance bounding box. Based on these predic-
+tions, instances are obtained by clustering. The network has a fairly complex
+architecture with many interleaved building blocks, making training quite tricky.
+Further, the overall performance highly depends on the correct prediction of the
+number of instances in the scene. In street scenes, there can be hundreds of
+instances per image [6]. Thus, the number of training samples per number of
+instances is low, mistakes in their estimation can be critical, and the available
+cues for clustering might not correlate with the estimated number of instances.
+Jonas Uhrig, Marius Cordts, Uwe Franke, Thomas Brox
+(c) Instance direction.
+Fig. 3: Ground truth examples of our three proposed FCN channels. Color over-
+lay (a) as suggested by [6], (b) represents depth per object from red (close) to
+blue (distant), (c) represents directions towards corresponding instance centers.
+In this work, we focus on urban street scenes. Besides each pixel’s semantic
+class, our network estimates an absolute depth, which is particularly useful for
+instance separation in street scenes. We encode instances on a pixel-level by
+the direction towards their center point. This representation is independent of
+the number of instances per image and provides strong signals at the instance
+boundaries.
+3.1 FCN Feature Representation
+Our network extends the FCN-8s model [21] with three output channels that to-
+gether facilitate instance segmentation. All channels are jointly trained as pixel-
+wise discrete labeling tasks using standard cross-entropy losses. Our proposed
+representation consists of (1) a semantic channel that drives the instance classiﬁ-
+cation, (2) a depth channel to incorporate scale and support instance separation,
+and (3) a 2D geometric channel to facilitate instance detection and segmentation.
+We chose the upscaling part of our FCN such that we can easily change the
+number of classes for each of the three proposed channels without re-initializing
+all upsampling layers. To this end, after the largest downsampling factor is
+reached, we use Deconvolution layers together with skip layers [21] to produce
+a representation of 1
+8 of the input resolution with a depth of 100 throughout all
+intermediate layers. The number of channels of this abstract representation is
+then reduced through 1×1 convolutions to the proposed semantic, depth, and
+instance center channels. To reach full input resolution, bilinear upsampling is
+applied, followed by a separate cross-entropy loss for each of our three output
+channels.
+Semantics. To cope with diﬀerent semantic classes, we predict a semantic label
+for each input pixel, c.f . Fig. 3a. These predictions are particularly important
+as they are the only source of semantic information in our approach. Further,
+the predicted semantic labels allow us to separate objects from background as
+well as objects of diﬀerent classes from each other.
+Depth. Urban street scenes typically contain objects at various distances [6].
+To guide the post-processing in terms of objects at diﬀerent scales, we predict a
+Pixel Encoding and Depth Layering for Instance-level Semantic Labeling
+depth label for each object pixel. We assign all pixels within an object instance
+to a constant depth value, e.g. the median over noisy measurements or the center
+of a 3D bounding box, c.f . Fig. 3b. These depth estimates also support instance
+separation, which becomes apparent when considering a row of parking cars,
+where the depth delta between neighboring cars is a full car length instead of a
+few centimeters in continuous space. The depth values are discretized into a set
+of classes so that close objects have a ﬁner depth resolution than distant objects.
+Direction. Object instances are deﬁned by their boundary and class. Therefore,
+it seems natural to train an FCN model to directly predict boundary pixels.
+However, those boundaries represent a very delicate signal [1] as they have a
+width of only one pixel, and a single erroneously labeled pixel in the training
+data has a much higher impact compared to a region-based representation.
+We introduce a class-based representation which implicitly combines infor-
+mation about an instance’s boundary with the location of its visible center. For
+each object pixel we compute the direction towards its corresponding center
+and discretize this angle to a set of classes, c.f . Fig. 3c. This information is
+easier to grasp within a local region and is tailored for an FCN’s capability to
+predict pixel-wise labels. Especially for pixels on the boundary between neigh-
+boring objects, our representation clearly separates the instances as predictions
+have nearly opposite directions. Since we predict the center of the visible area
+of an object and not its physical center, we can handle most types of occlusions
+very well. Furthermore, instance centers have a distinct pattern, c.f . Fig. 3c,
+which we exploit by applying template matching, as described in Sec. 3.2. Even
+though our proposed representation does not directly yield instance IDs, it is
+well deﬁned even for an arbitrary number of instances per image.
+To obtain an accurate direction estimation for each pixel, we assign the aver-
+age direction by weighting all direction vectors with their respective FCN score
+(after softmax normalization). This allows us to recover a continuous direction
+estimation from the few discretized classes.
+3.2 Template Matching
+To extract instance centers, we propose template matching on the direction
+predictions, where templates are rectangular and contain the distinct pattern
+visible in Fig. 3c. We adjust the template’s aspect ratio depending on its semantic
+class, so we can better distinguish between pedestrians and vehicles. In order to
+detect also distant objects with consistent matching scores, we scale the size of
+the templates depending on the predicted depth class.
+To reduce induced errors from confusions between objects of similar semantic
+classes, we combine multiple semantic classes into the categories human, car,
+large vehicle, and two wheeler.
+Normalized cross-correlation (NCC) is used to produce a score map for each
+category by correlating all pixels with their respective template. These maps
+indicate the likelihood of pixels being an instance center, c.f . Fig. 2. In the
+following, we predict instances for each category separately. After all instances
+are found, we assign them the majority semantic class label.
+Jonas Uhrig, Marius Cordts, Uwe Franke, Thomas Brox
+3.3 Instance Generation
+Instance Centers. To determine instance locations, we iteratively ﬁnd maxima
+in the generated template matching score maps via non-maximum suppression
+within an area that equals the template size. This helps avoid multiple detections
+of the same instance while incorporating typical object sizes. Those maxima
+represent our temporary instance centers, which are reﬁned and merged in the
+following steps.
+Instance Proposals. Each pixel with a predicted direction from the FCN is
+assigned to the closest temporary instance center where the relative location
+and predicted direction agree. Joining all assigned pixels per instance hypothesis
+yields a set of instance proposals.
+Proposal Fusion. Elongated objects and erroneous depth predictions cause
+an over-segmentation of the instances. Thus, we reﬁne the generated instances
+by accumulating estimated directions within each proposal. When interpreting
+direction predictions as vectors, they typically compensate each other within
+instance proposals that represent a complete instance, i.e. there are as many
+predictions pointing both left and right. However, incomplete instance proposals
+are biased to a certain direction. If there is a neighboring instance candidate
+with matching semantic class and depth in the direction of this bias, the two
+proposals are fused.
+To the remaining instances we assign the average depth and the most fre-
+quent semantic class label within the region. Further, we merge our instance
+prediction with the pixel-level semantic labeling channel of the FCN by assign-
+ing the argmax semantic label to all non-instance pixels. Overall, we obtain a
+consistent scene representation, consisting of object instances paired with depth
+estimates and pixel-level labels for background classes.
+4 Experiments
+4.1 Datasets and Metrics
+We evaluated our approach on the KITTI object detection dataset[10] extended
+with instance-level segmentations [3, 35] as well as Cityscapes [6]. Both datasets
+provide pixel-level annotations for semantic classes and instances, as well as
+depth information, which is essential for our approach. For the ground truth
+instance depths we used the centers of their 3D bounding box annotation in
+KITTI and the median disparity for each instance in Cityscapes based on the
+provided disparity maps. We used the oﬃcial splits for training, validation and
+test sets.
+We evaluated the segmentation based on the metrics proposed in [35] and [6].
+To evaluate the depth prediction, we computed the mean absolute error (MAE),
+the root mean squared error (RMSE), the absolute relative diﬀerence (ARD),
+and the relative inlier ratios (δ1, δ2, δ3) for thresholds δi = 1.25i [31]. These
+metrics are computed on an instance level using the depths in meters. We only
+considered instances that overlap by more than 50 % with the ground truth.
+Pixel Encoding and Depth Layering for Instance-level Semantic Labeling
+Table 1: Evaluation of our variants on KITTI val (top) and comparison with
+baselines (Best [34]/[35]) on KITTI test (bottom) using metrics from [35]. For
+AvgFP and AvgFN lower is better, all other numbers are in percent and larger
+is better. Mix [35] shows the best results per metric from all baseline variants.
+Method
+Set
+IoU MWCov MUCov AvgPr AvgRe AvgFP AvgFN InsPr InsRe InsF1
+Ours-D-F val
+val
+Ours-F
+val
+Ours-D
+Ours
+val
+Fig. 4: Example results of our instance segmentation (right) and corresponding
+ground truth (middle) on KITTI. We even detect objects at very large distances.
+For Cityscapes, we used the 19 semantic classes and combined the 8 object classes
+into 4 categories (car, human, two-wheeler, and large vehicle). For KITTI, only
+car instance segmentations are available. For both datasets, we used 19 depth
+classes and an explicit class for background. We chose ranges for each depth
+class and template sizes diﬀerently for each dataset to account for diﬀerent char-
+acteristics of present objects and used camera settings [6]. This is necessary as
+distances and semantic classes of objects diﬀer remarkably. Details are provided
+in the supplementary material. The instance directions were split into 8 equal
+parts, each covering an angle of 45◦ for both datasets.
+We use the 8-stride version of an FCN, which is initialized using the ImageNet
+dataset [28]. After initializing the upsampling layers randomly, we ﬁne-tune the
+network on KITTI and Cityscapes to obtain all three output channels.
+4.3 Ablation Studies
+We evaluated the inﬂuence of each proposed component by leaving out one or
+more components from the complete processing pipeline (Ours). The perfor-
+mance was evaluated on the respective validation sets and is listed in Tables 1
+and 2 (top) for both datasets.
+Jonas Uhrig, Marius Cordts, Uwe Franke, Thomas Brox
+Table 2: Evaluation on Cityscapes val (top) and test (center) using metrics in
+[6]. Further, we compare the performance for the most frequent label car, where
+we include KITTI test (bottom). All numbers are in percent and larger is better.
+Variant
+Ours-D-F
+Ours-F
+Ours-D
+Ours
+Dataset
+CS val
+CS val
+CS val
+CS val
+CS test
+CS test
+CS test
+CS test
+KITTI test
+all
+all
+all
+all
+all
+all
+car
+car
+car
+For Ours-D, we removed the depth channel and chose the template size scale-
+agnostic. It turned out that a rather small template size, which leads to a large
+number of instance proposals, produces the best results. This is possible when
+post-processing heavily relies on correct direction predictions, which induces
+successful instance fusion. However, the performance is signiﬁcantly worse in
+most metrics on both datasets compared to our full system, which shows that the
+depth information is an essential component of our approach. When the fusion
+component was also removed (Ours-D-F ), a larger template size was needed to
+prevent an over-segmentation. However, performance dropped by an even larger
+margin than for Ours-D. In our last variant we kept the depth information
+but directly used the instance proposals as ﬁnal instance predictions (Ours-
+F ). The performance was even slightly worse than Ours-D, which shows that
+all our components are important to obtain accurate object instances. These
+observations are consistent on both datasets.
+4.4 Instance Evaluation
+KITTI. We clearly outperform all existing works on KITTI (Best [34]/[35]),
+c.f . Table 1 (bottom). Compared to the better performing work Best [35], we
+achieve a margin of 37 % relative improvement averaged over all metrics. Even
+when comparing our single variant with the best numbers over all existing vari-
+ants for each metric individually (Mix [35]), we achieve a signiﬁcantly better
+performance. We also evaluated our approach using the metrics introduced in
+[6] to enable comparisons in future publications, c.f . Table 2 (bottom). Quali-
+tative results are shown in Fig. 4.
+Cityscapes. On the Cityscapes dataset, our approach outperforms the baseline
+MCG+R-CNN [6] in all proposed metrics as evaluated by the dataset’s submis-
+Pixel Encoding and Depth Layering for Instance-level Semantic Labeling
+(b) Instance Ground Truth
+(c) Instance Prediction
+(d) Semantics
+Fig. 5: Example results of our instance segmentation and corresponding ground
+truth (rows 1–3) on Cityscapes. We also include the three FCN output channels
+(row 5) and their ground truth (row 4). It can be seen that even distant objects
+are segmented well and the approach can handle occlusions.
+sion server, c.f . Table 2 (center). We nearly double the performance in terms
+of the main score AP. Compared to the performance on KITTI, c.f . Table 2
+(bottom), the numbers are signiﬁcantly lower, indicating the higher complexity
+of scenes in Cityscapes. Qualitative results are shown in Fig. 5.
+4.5 Depth Evaluation
+As shown in Table 3, the average relative and mean absolute error of our pre-
+dicted instances are as low as 7.7 % and 1.7 m, respectively, on the KITTI dataset.
+On the Cityscapes dataset, which contains much more complex scenes, with
+many and distant object instances, we achieve 11.3 % and 7.7 m, respectively.
+These results are particularly impressive, since we used only single monocular
+images as input for our network. We hope that future publications compare their
+depth estimation performance using the proposed metrics.
+4.6 Evaluation of semantic class labels
+Our method also yields a pixel-level semantic labeling including background
+classes that we evaluate on Cityscapes, c.f . Table 4. We compare to two base-
+lines, FCN 8s [21] that uses the same FCN architecture as our approach and Di-
+lation10 [33], which is the currently best performing approach on Cityscapes [6].
+Jonas Uhrig, Marius Cordts, Uwe Franke, Thomas Brox
+Instance-based depth evaluation on KITTI test and
+Table 3:
+Cityscapes validation. MAE and RMSE are in meters, the others
+in percent. MAE, RMSE, and ARD denote error metrics, where
+smaller is better, δi represent accuracy, where higher is better.
+Dataset
+MAE RMSE ARD
+KITTI (test)
+Cityscapes (val)
+Table 4: Semantic pixel-level evaluation on Cityscapes test com-
+pared to baselines and using the corresponding metrics [6]. All values
+are in percent and larger is better.
+Method
+IoUclass
+iIoUclass
+IoUcategory
+iIoUcategory
+It can be seen that our approach is on par with the state-of-the-art although
+this work focuses on the harder instance segmentation task.
+5 Conclusion
+In this work, we present a fully convolutional network that predicts pixel-wise
+depth, semantics, and instance-level direction cues to reach an excellent level of
+holistic scene understanding. Instead of complex architectures or graphical mod-
+els for post-processing, our approach performs well using only standard computer
+vision techniques applied to the network’s three output channels. Our approach
+does not depend on region proposals and scales well for arbitrary numbers of
+object instances in an image.
+We outperform existing works on the challenging urban street scene datasets
+Cityscapes [6] and KITTI [34, 35] by a large margin. On KITTI, our approach
+achieves 37 % relative improvement averaged over all metrics and we almost dou-
+ble the performance on Cityscapes. As our approach can reliably predict absolute
+depth values per instance, we provide an instance-based depth evaluation. Our
+depth predictions achieve a relative error of only a few meters, even though the
+datasets contain instances in more than one hundred meters distance. The main
+focus of this work is instance segmentation, but we also achieve state-of-the-art
+performance for pixel-level semantic labeling on Cityscapes, with a new best
+performance on an instance-based score over categories.
+Pixel Encoding and Depth Layering for Instance-level Semantic Labeling
+References
+Jonas Uhrig, Marius Cordts, Uwe Franke, Thomas Brox
+instance
+segmentation.
+29. Silberman, N., Sontag, D., Fergus, R.: Instance segmentation of indoor scenes using
+30. Tighe, J., Niethammer, M., Lazebnik, S.: Scene parsing with object instances and
+33. Yu, F., Koltun, V.: Multi-scale context aggregation by dilated convolutions. In:
+35. Zhang, Z., Fidler, S., Urtasun, R.: Instance-level segmentation with deep densely
+Supplementary Material for
+Pixel-level Encoding and Depth Layering for
+Instance-level Semantic Labeling
+1Daimler AG R&D, 2University of Freiburg, 3TU Darmstadt
+jonas.uhrig@daimler.com
+A Qualitative Results
+Figures 1 and 2 show further qualitative examples of our instance segmentation
+on urban scenes from KITTI [10] and Cityscapes [6]. It can be seen that our
+approach can segment even high numbers of instances despite heavy occlusions
+and clutter.
+B Depth Ranges
+As mentioned in Sec. 3.1, we discretized continuous instance depths into 19 depth
+classes. Instead of equidistantly splitting them, we chose the ranges for each class
+such that the sizes of objects within each depth class are similar. We found this
+option to yield slightly better results, since the subsequent template matching
+is based on our FCN’s depth prediction and equal object sizes per depth class
+result in more reliable template matching scores.
+We deﬁned the values as in Table 2 to provide a good trade-oﬀ between
+number of depth classes and depth resolution, as well as number of samples per
+depth class in the training data. As the Cityscapes dataset contains a lot of
+object instances labeled for very high distances of over 200 meters [6], the depth
+ranges had to be chosen diﬀerently than for KITTI [10].
+C Class-level Evaluation
+C.1 Instance-level Evaluation
+We list class-level performances of our approach for instance-level semantic la-
+beling (Ours) and the baseline MCG+R-CNN [6] in Table 1. Our approach has
+diﬃculties especially for semantic classes that are least reliably classiﬁed by our
+FCN, such as bus, truck, and train c.f . Tables 3 to 5. Best results are achieved
+for cars and humans, while we outperform the proposal-based baseline for all
+other classes by large margins in all used metrics.
+Jonas Uhrig, Marius Cordts, Uwe Franke, Thomas Brox
+C.2 Pixel-level Evaluation
+A detailed evaluation of our performance for pixel-level semantic labeling can
+be found in Tables 3 to 5. Even though our main focus lies on instance-level
+semantic labeling, we achieve competitive results for all classes compared to the
+baselines listed in [6]. Using the instance-aware metric iIoU, we even outperform
+most existing works by a few percent points for the object classes person, car,
+and bicycle.
+The reason for a comparably low performance on the classes bus, truck, and
+train becomes evident by inspecting Tables 3 and 4. We achieve comparably
+low semantic labeling results on a pixel-level for these classes and therefore our
+template matching and instance generation steps perform signiﬁcantly worse
+than on all other object classes.
+References
+encoder-decoder architecture for image segmentation (2015) iii, v
+deep structured models for semantic segmentation (2015) iii, v
+Table 1: Class-based evaluation of existing works and our approach for instance-
+level segmentation on Cityscapes test using metrics proposed in [6]. All numbers
+are in percent and larger is better.
+Metric
+Sup. Mat.: Pixel Enc. and Depth Layering for Instance-level Sem. Labeling
+iii
+Table 2: Assignment of depth classes with corresponding depth ranges
+for the two used datasets KITTI [10] and Cityscapes [6].
+Class Depth Ranges
+Depth
+Depth Ranges
+Depth
+KITTI
+Cityscapes
+Table 3: Evaluation of our class-level performance for pixel-level semantic la-
+beling on Cityscapes test using the IoU metric proposed in [6]. All numbers are
+in percent and larger is better.
+Ours
+Jonas Uhrig, Marius Cordts, Uwe Franke, Thomas Brox
+(b) Instance Ground Truth
+(c) Instance Prediction
+Fig. 1: Further example results of our instance segmentation (right) and corre-
+sponding ground truth (middle) on KITTI.
+Table 4: Confusion matrix of our method’s performance
+for pixel-level semantic labeling on Cityscapes validation
+using all 8 object classes [6]. All numbers are in percent.
+person
+rider
+car
+truck
+bus
+train
+motorcycle
+bicycle
+Sup. Mat.: Pixel Enc. and Depth Layering for Instance-level Sem. Labeling
+(b) Instance Ground Truth
+(c) Instance Prediction
+Fig. 2: Further example results of our instance segmentation (right) and corre-
+sponding ground truth (center) on Cityscapes validation.
+Table 5: Class-level evaluation of our object-related performance for
+semantic segmentation on Cityscapes test using the iIoU metric proposed
+in [6]. All numbers are in percent and larger is better.
+Ours

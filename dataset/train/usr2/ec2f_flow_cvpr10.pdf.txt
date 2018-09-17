@@ -1,0 +1,542 @@
+Motion Detail Preserving Optical Flow Estimation∗
+Jiaya Jia
+Yasuyuki Matsushita
+The Chinese University of Hong Kong
+Microsoft Research Asia
+{xuli,leojia}@cse.cuhk.edu.hk
+yasumat@microsoft.com
+Abstract
+We discuss the cause of a severe optical ﬂow estima-
+tion problem that ﬁne motion structures cannot always be
+correctly reconstructed in the commonly employed multi-
+scale variational framework. Our major ﬁnding is that sig-
+niﬁcant and abrupt displacement transition wrecks small-
+scale motion structures in the coarse-to-ﬁne reﬁnement. A
+novel optical ﬂow estimation method is proposed in this
+paper to address this issue, which reduces the reliance of
+the ﬂow estimates on their initial values propagated from
+the coarser level and enables recovering many motion de-
+tails in each scale. The contribution of this paper also in-
+cludes adaption of the objective function and development
+of a new optimization procedure. The effectiveness of our
+method is borne out by experiments for both large- and
+small-displacement optical ﬂow estimation.
+1. Introduction
+The variational framework [13],
+together with the
+coarse-to-ﬁne reﬁnement [1], is widely adopted in optical
+ﬂow estimation [7, 8]. In the Middlebury optical ﬂow eval-
+uation website [2], almost all top-ranked methods use this
+strategy.
+Brox et al. [6], in computing large-displacement optical
+ﬂow, pointed out that if the ﬂow structures are smaller than
+their displacements, the latter may not be well estimated.
+In this paper, we show that this issue also applies to small-
+displacement motion. Taking Figure 1 as an example, due to
+the camera motion, the foreground toy deer has its motion
+signiﬁcantly differing from that of the background (average
+displacements d = −2 and d = 21 respectively). This
+example is in fact very challenging for the coarse-to-ﬁne
+variational optical ﬂow estimation.
+As shown in Figure 1(e), in a coarse level, the nar-
+row neck entirely disappears and only the signiﬁcant back-
+ground motion is estimated. This makes the emerging fore-
+ground pixels in the ﬁner scale (Figure 1(f)) are with their
+actual motion signiﬁcantly different from the initial esti-
+∗The work described in this paper was fully supported by a grant from
+the Research Grants Council of the Hong Kong Special Administrative
+Region (Project No. 412708).
+Coarse Level
+Finer Level
+Figure 1. Motion detail preserving problem.
+(a)-(b) Two input
+patches. (c) Flow estimate using the coarse-to-ﬁne variational set-
+ting. (d) Our ﬂow estimate. (e)-(f) Two consecutive levels in the
+pyramid. Flow maps are visualized using the color code in (g).
+mate from the background, violating the linearization as-
+sumption and accordingly leading to a highly unstable mo-
+tion estimation process. The ﬁnal ﬂow result shown in Fig-
+ure 1(c) includes considerable errors. This example dis-
+closes one problem of the general coarse-to-ﬁne variational
+model – that is, the inclination to diminish small motion
+structures when spatially signiﬁcant and abrupt change of
+the displacements exists.
+We address the motion detail preserving problem in this
+paper and propose a uniﬁed framework for high-quality
+ﬂow estimation in both large and small displacement set-
+tings. Central to our method is a novel selection scheme to
+compute extensive initial ﬂow vectors in each image level.
+This makes the following optimization not completely rely
+on the result from the previous scale and thus capable to cor-
+rect estimation error in the top-down reﬁnement. Our ﬂow
+result shown in Figure 1(d) contains ﬁne structures. More
+examples are included in Section 5 and in the technical re-
+port [24].
+This paper also contributes in the following ways. First,
+we use robust sparse feature matching to produce extended
+ﬂow initialization, which helps enforce the linearization
+condition in the variational setting. Second, in the ﬂow esti-
+mation model, we propose the selective combination of the
+color and gradient constraints in deﬁning the data term, ro-
+bust to outliers. Third, we propose a fast variable-splitting-
+based optimization method to reﬁne ﬂow maps. It is highly
+parallel, compatible with modern GPU computation archi-
+tecture.
+Finally, we employ the Mean Field approximation to en-
+able solving the objective function, which involves both dis-
+crete and continuous variables and is commonly regarded
+challenging to solve. Extensive experiments visually and
+quantitatively validate the performance of our approach in
+maintaining details for both large- and small-displacement
+motion.
+Modern optical ﬂow estimation is usually posed as an
+energy minimization problem. Black and Anandan [4] re-
+placed the quadratic penalty functions in [13] with non-
+convex robust functions to reject outliers. Sun et al. [21]
+used a learning-based framework for both the matching cost
+(data term) and ﬂow derivatives (smoothness term).
+Efforts also have been put into improving the optical ﬂow
+constraints. Haussecker and Fleet [12] proposed a phys-
+ical constraint to model brightness change. Lempitsky et
+al. [14] computed the matching cost only using high fre-
+quency components. Pre-ﬁltering on the input images was
+suggested in [21] and [17] to handle illumination variation.
+These models are ﬂexible, but at the same time require to
+solve highly non-convex objective functions.
+In [7], Brox et al. introduced the gradient constancy con-
+straint to complement the brightness one. L1 norm is used
+as the penalty function for both the data and smoothness
+terms so that the energy is convex after linearization. Sim-
+ilar compromise between robustness and complexity was
+also made in [8, 26]. However, we will show later that direct
+addition of the brightness and gradient terms is not optimal
+and propose a selection model to improve it.
+Almost all the above methods rely on the coarse-to-ﬁne
+warping to deal with motion larger than one pixel [1, 3]. As
+discussed in Section 1, this strategy has inherent problem to
+recover small-scale structures in many situations. Adaptive
+window is used in stereo matching [19] to handle incorrect
+initialization near depth boundary. It assumes at least the
+nearby disparities are correctly initialized, which might not
+be true for small-scale structures that are totally eliminated
+in the coarse level.
+Using discrete optimization, Lempitsky et al. [14] pro-
+posed fusing ﬂow proposals obtained from different ﬂow
+estimation methods with various parameter settings. This is
+proven effective to ﬁnd the optimal values among the given
+proposals. But the sufﬁciency and optimality of the propos-
+als cannot be controlled. Also, the methods [16, 13] that
+generate the proposals still employ the conventional coarse-
+to-ﬁne warping. So it is possible that none of the proposals
+Figure 2. Data cost distributions for two points. (a) shows a patch
+of the “RubberWhale” example, where two points P1 (138,278)
+and P2 (141,299) are highlighted. (b) and (c) plot different data
+costs (vertical axis) for P1 and P2. The ground truth displacement
+is moved to 0 (horizontal axis) for illustration.
+preserve small-scale motion structures. In comparison, our
+method computes a few high conﬁdence ﬂow candidates in
+each level, and thus is not entirely dependent of the ﬂow
+initialization from the previous scale.
+In recent large displacement optical ﬂow estimation,
+Brox et al. [6] performed region-based descriptor matching.
+This method can effectively recover large displacement ﬂow
+by adjusting the objective to favor matching results, albeit
+sometimes vulnerable to matching outliers. Steinbr¨ucker
+and Pock [20] extended the numerical scheme of [25] and
+searched over all possible values for the large displacement
+ﬂow. As discrete labels are used in the search step, results
+can be lack of sub-pixel accuracy.
+3. Optical Flow Model
+The Total Variation/L1 model [7, 8, 25] was proven very
+effective in ﬂow estimation. We base our data penalty func-
+tion on the L1 norm to reject outliers and use the Total Vari-
+ation (TV) for regularization.
+As the color constancy constraint is often violated when
+illumination or exposure changes, adding gradient con-
+stancy constraints was proposed [7, 8]. Denoting by u =
+(u, v)T the ﬂow vector representing the displacement be-
+tween frames I1 and I2, the data term for ﬂow estimation
+can generally be written as
+where τ is a weight. This function, due to the addition of
+two terms, is less accurate in terms of modeling the conﬁ-
+dence of pixel correspondence than only using one out of
+the two terms that is more appropriate.
+Figure 2 shows an example where the patch in (a) con-
+tains two points P1 and P2. Their data cost distributions
+with respect to different displacement values are plotted
+in (b) and (c) respectively (ground truth displacements are
+shifted to 0). It is noticeable that the color constraint (blue
+curve in (b)) does not produce the minimum energy near the
+ground truth value because the color constancy is violated
+given point P1 moving out of the shadow. Adding the color
+and gradient terms using Eq. (1) also results in an undesir-
+able distribution (dashed magenta curve) as the cost at the
+ground truth point is not even a local minimum. Similarly,
+in Figure 2(c), only the color constancy holds as point P2
+undergoes rotational motion which alters image gradients.
+So it is not ideal as well to add the two constraints in the
+data function deﬁnition.
+The above analysis indicates that a good model should
+only incorporate the more informative constraint, but not
+both of them. We accordingly deﬁne a binary weight map
+α(x) : Z2 7→ {0, 1} to switch between the two terms. The
+new data function is expressed as
+When α(x) = 1, the gradient constraint is favored. Other-
+wise, we implement color constancy. Our empirical investi-
+gation provided in Section 5 shows that this model can lead
+to higher quality results than various alternatives.
+3.2. Edge(cid:173)Preserving Regularization
+The regularization term for optical ﬂow estimation is
+generally edge preserving [21, 22]. We deﬁne our smooth-
+ness term as
+where x ∈ Z2, indexing the 2D coordinates and k∇u(x)k
+is the common TV regularizer. ω(x) is the simple structure
+adaptive map that maintains motion discontinuity [22]:
+where κ = 0.8 in our experiments. The ﬁnal objective
+function is thus deﬁned as
+where λ is the regularization weight.
+3.3. Mean Field Approximation
+Minimizing Eq. (5) involves simultaneously computing
+two ﬁelds: continuous u and binary α, which is commonly
+regarded as computationally intractable. We employ the
+Mean Field (MF) Approximation [9] to simplify the prob-
+lem by ﬁrst canceling out the binary process by integration
+over α [24]. The probability of a particular state of the sys-
+tem is given by
+where β is the inverse temperature and Z is the partition
+function, deﬁned as
+We then compute the sum over all possible αs (as described
+in [24]) with the saddle point approximation, yielding
+and the effective potential
+where the effective data function is
+The optimality of Eq. (10) does not depend on the estimate
+of α. Moreover, although Eq. (10) is non-convex and is
+not easy to solve using continuous optimization, there is no
+obstacle to apply discrete optimization if candidate labels
+can be obtained. We propose a robust algorithm, described
+in the next section, to estimate u.
+Note that the effective data term can also be deemed as
+a robust function which selectively combines the color and
+gradient constancy constraints. This can be clariﬁed by tak-
+ing the partial derivative with respect to the variable u on
+the data term, which yields
+where ¯α(x) is the ﬂow-dependent weight, written as
+¯α(x) is the MF-approximation of α(x). So its effect
+equates that of α(x) (Eq. (2)) in constraint selection. The
+cost distributions of the new effective data function are plot-
+ted in Figures 2(b) and (c) using green crossed curves. They
+indicate that the effective energy approximates the lower en-
+velope of the two data costs (α = 0 and α = 1), which is
+exactly what we need for accurate ﬂow estimation.
+Input: a pair of images for optical ﬂow estimation
+1. Construct pyramids for both of the images and set the
+4. Continuous Flow Optimization (Section 4.2)
+6. Occlusion-aware Reﬁnement (Section 4.3)
+Output: optical ﬂow map
+Table 1. Overview of our method.
+4. Optimization Framework
+Traditional optical ﬂow estimation, due to the use of the
+variational setting, relies excessively on the coarse-to-ﬁne
+reﬁnement. As discussed in Section 1, this process could
+fail to recover ubiquitous ﬁne motion details due to the pos-
+sible large discrepancy between the initial ﬂow estimates
+and the ground truth displacements in each level.
+In this section, based on Eef f and ¯α, we propose an un-
+conventional method to optimize Eq. (5). Speciﬁcally, be-
+cause Eef f
+D (u) is not dependant of ¯α, we ﬁrst infer multi-
+ple high-conﬁdence ﬂow candidates and apply discrete op-
+timization to select the optimal ones. With this result, ¯α in
+Eq. (12) is then quickly estimated. We ﬁnally improve the
+subpixel accuracy of the ﬂow estimates with the estimated
+¯α using continuous optimization. This procedure is found
+surprisingly effective to dampen estimation errors caused
+by the occasionally biased ﬂow results from the coarse level
+computation.
+Our overall algorithm is sketched in Table 1 based on
+iteratively processing images in a top-down fashion. The
+steps are detailed further below.
+4.1. Extended Flow Initialization
+We address the general ﬂow initialization problem in
+each image level by estimating multiple displacements from
+the reference to target images using the SIFT features de-
+tection and matching [15]. The displacement vectors are
+denoted as {uv
+n}, as shown in Figure 3(a). They are
+new potential ﬂow candidates except those that already exist
+in the ﬂow map uc propagated from the immediate coarser
+scale (Figure 3(b)). To robustly screen out the duplicated
+vectors, we compute the Euclidean distance between each
+uv
+js where pixel j is within a 5 × 5 window cen-
+tered at the reference feature of uv
+i . If all results are greater
+than 1 (pixel), we regard uv
+i as a genuine ﬂow candidate.
+We repeat this process for all is, and denote the m new can-
+Figure 3. Extended ﬂow initialization. (a) One of the images over-
+laid with the computed feature motion vectors. (b) Flow ﬁeld uc
+propagated from the coarser level. (c) New displacements com-
+puted using (a) and (b). They are candidate ﬂow vectors for all
+pixels. (d) Optimized ﬂow map u0 with respect to the candidates
+in the current image level. (e)-(f) show close-ups of (b) and (d).
+didates as uv
+The m new vectors uv
+This strategy signiﬁcantly reduces the system depen-
+dence on the coarse-scale ﬂow estimation. It is notable as
+well that feature matching initially produces considerable
+vectors distributed in the whole image, as shown in Figure
+3(a); but they reduce to less than 15 candidates after local
+comparison with uc in the given example. Only the most
+distinctive ﬂow vectors are retained.
+k0, ..., uv
+, together with the
+original uc, represent possible motion in the present image
+scale. We model the selection of the optimal ﬂow among
+the m + 1 candidates for each pixel as a labeling problem,
+where the objective function is given in Eq. (10). Upper
+of Figure 3(d) demonstrates the color coded labels. This
+problem can be solved by discrete optimization efﬁciently
+because on the one hand the number of candidates is small,
+thanks to the screening; on the other hand, Eq. (10) does
+not involve α, simplifying the computation.
+We adopt the Quadratic Pseudo-Boolean Optimization
+(QPBO) [18] to solve this MRF problem. The fusion move
+step [14] is used to repeatedly fuse the candidates until each
+gets visited twice. Also, to avoid the checker-board-like ar-
+tifacts commonly produced near motion boundaries in dis-
+crete optimization, we employ the anisotropic representa-
+tion of the TV regularizer k∇uk = k∇uk1 + k∇vk1 with
+8-neighbor discretization [10]. The output is the ﬂow map
+denoted as u0. One result is shown in Figure 3(d), which
+contains better recovered motion structure compared to the
+map uc in Figure 3(b). Close-ups are shown in Figures 3(e)
+and (f).
+Our method can work directly on the input images with-
+out employing the multscale framework. But it will suffer
+from expensive and possibly unstable computation because
+hundreds of or more labels might be produced simultane-
+ously in the original resolution.
+4.2. Continuous Flow Optimization
+The ﬂow estimates from the previous step are taken into
+Eq. (12) to compute ¯α. One result is shown in Figure 4(b).
+Considering that Eq. (11) is highly non-convex, we take ¯α
+back to Eq. (5) for optimization in the variational model.
+As color
+Our Solver We propose decomposing the optimization
+problem into three simpler ones, each of which can have the
+globally optimal solution. The key technique is a variable-
+splitting method with auxiliary variables p and w, repre-
+senting the substituted data cost and ﬂow derivatives respec-
+tively, to move a few terms out of the non-differentiable L1
+norm expression. This scheme is found very efﬁcient and
+essential to produce high quality results.
+kIk
+Besides efﬁciency and reliability, Eq. (16) makes opti-
+mization highly parallel, fully compatible with GPU accel-
+eration. The result optimality is guaranteed in each step.
+Our algorithm proceeds with the following iterations where
+the initial u = u0.
+1. Fix u to estimate p. The simpliﬁed objective function is
+kIk
+Single variable optimization can be achieved in this step.
+The optimal solution is given by the shrinkage formula [11]
+t is the optical ﬂow constraint.
+2. Fix u and solve for w. The function reduces to
+Similarly, unique solution is guaranteed by the shrinkage
+formula
+where u = u0 + du. Solutions for wduy , wdvx , and wdvy
+can similarly be derived. The computation in this step is
+also quick and is highly parallel in nature.
+3. Fix w, p and solve for u. The objective function is
+kIk
+(21)
+It is quadratic and thus the corresponding Euler-Lagrange
+equations of Eq. (21) are linear w.r.t. du and dv. Globally
+optimal solution can be directly obtained by solving the lin-
+ear system [13] in this step.
+Our method iterates among optimizing (18), (20) and
+(21) until convergence. Note that θ and η are critical pa-
+rameters that should have very small values. It was found
+however ﬁxing them constants typically results in slow con-
+vergence. We thus adopt the continuation scheme [11],
+which initially sets θ and η to relatively large values to al-
+low warm-starting, and then decreases them in iterations to-
+ward the desired convergence. Our algorithm is sketched in
+Table 2, where ηmin and θmin are set to 0.1 and 0.01 respec-
+tively. η0 and θ0 are the respective initial values, conﬁgured
+as η0 = 3n × ηmin and θ0 = 3n × θmin, where n denotes the
+number of iterations. More explanations are given in [24].
+Continuous Flow Optimization
+η ← η0
+repeat
+Table 2. Algorithm for continuous ﬂow optimization.
+(a) Occlusion and ﬂow
+(c) Final result
+Figure 5. Occlusion-aware reﬁnement. (a) Flow estimate overlaid
+with the occlusion map (o(x) > 0.5). (b) and (c) show results
+before and after the ﬁnal reﬁnement in an image scale.
+Figures 4(d) and (e) show ﬂow maps before and after the
+continuous reﬁnement in an image scale. We denote by ur
+the reﬁned ﬂow map.
+Our ﬁnal step is for handling large occlusion in the com-
+puted ﬂow map. Although cross-checking is effective in
+occlusion detection, it needs to compute ﬂow ﬁelds bidirec-
+tionally. Our strategy is based on an observation that mul-
+tiple pixels mapping to the same point in the target image
+using forward warping are possibly occluded by each other.
+Thus, we detect occlusion using the mapping uniqueness
+criterion [5], expressed as
+where m(x) is the count of reference pixels mapped to po-
+sition x + u(x) in the target view using forward warping.
+T(a, l, h) is a function that truncates the value of a if it is
+out of [l, h]. Eq.
+(22) indicates if there exist more than
+one reference pixels mapping to x + u(x), the occlusion la-
+bel for the reference x is set. Although this simple method
+sometimes fattens the occlusion region, it seldom leaves out
+true occluded pixels, and thus does not harm the ﬁnal ﬂow
+estimation.
+Our measure of the data conﬁdence based on the occlu-
+sion detection is expressed as
+ours
+Urban2
+Figure 6. Flow estimation errors w.r.t. different αs.
+The larger o(x) is, the less we trust the data term. 0.01 is
+to make c(x) always larger than 0. The ﬁnal energy used to
+reﬁne the disparity map is
+which can be efﬁciently optimized with our continuous
+solver. The ﬁnal result of the “Grove” example in one im-
+age scale is shown in Figure 5 where the detected occlusion
+map overlays the ﬂow estimate. (b) and (c) compare the ur
+map computed from the continuous ﬂow optimization step
+with the ﬁnal occlusion-aware reﬁnement result.
+5. Evaluation and Experimental Results
+In this section, we present our results and comparison in
+both small- and large-displacement settings. τ in Eq. (2) is
+set to 1/1.4, which is learned from the Middlebury training
+image set by equaling the color and gradient costs. In order
+to reduce the sampling artifacts in Eq. (12), we ﬁlter DI
+and D∇I with a small Gaussian kernel with the standard
+deviation 1.0. β, λ, η, and θ are empirically set to 5, 12,
+0.1, and 0.01 respectively. For feature matching, we use the
+implementation of Lowe [15] with default parameter values.
+We ﬁrst evaluate the effectiveness of our selective com-
+bination strategy in deﬁning the data function. We compare
+our method with the those that set α = 0.5, α = 1, and
+α = 0 respectively. For fairness, we do not use the complete
+framework to generate our results, which would otherwise
+produce ﬂow estimates with even smaller error. Instead, we
+optimize Eq. (11) simply by fusing the two ﬂow maps com-
+puted with α = 1 and α = 0 respectively using graph cuts.
+Figure 6 shows the error comparison on the Middlebury
+training data [2] where the ground truth ﬂow map is avail-
+able. The two representative examples are “RubberWhale”
+(“R.W.” for short) and “Urban2”. It can be noticed that the
+average angular error (AAE) for “Urban2” is small when
+using the color constraint while the gradient constraint is fa-
+vored in “RubberWhale” due to illumination change. Sim-
+ply adding these two constraints produces AAE always in
+between [8]. In comparison, our method locally selects the
+optimal term and is more effective for energy minimization.
+Figure 7. Visual comparison with different α settings. (a) and (b)
+show two image patches. (c) and (d) show ﬂow results computed
+using the color and gradient constraints respectively.
+(e) is the
+ground truth ﬂow ﬁeld. (f) shows the result with α = 0.5. (g) is
+the ﬂow map obtained using our selective combination model. (h)
+shows the corresponding ¯α map.
+Figure 8. Visual comparison of the small-displacement optical
+ﬂow results. (b) shows the ground truth ﬂow map.
+Figure 7 shows the visual comparison. Red arrows in
+(a) and (f) indicate pixels violating the color constancy as-
+sumption. The blue arrows highlight the edge of the wheel,
+of which the gradient varies. (c) and (d) show results by
+respectively setting α = 1 and α = 0. (f) shows the result
+with α = 0.5, where problems caused by using either of the
+constraints still present. Our selective combination model
+helps more robustly reject outliers, as shown in 7(g).
+5.2. Middlebury Optical Flow Benchmarking
+In this subsection, we evaluate our optical ﬂow esti-
+mation method using the traditional small displacement
+data. Table 3 lists the average ranks of the top-performing
+ﬂow estimation methods on Middlebury evaluation website.
+Many of the small-scale motion structures can be recovered
+by our method.
+Regarding the running time, the extended ﬂow initializa-
+tion uses about 3 minutes in the ﬁne image level (resolution
+640 × 480), taking the Urban sequence as an example. The
+continuous ﬂow reﬁnement takes about one minute using
+the single thread CPU implementation. With GPU acceler-
+ation, this process can be further speeded up.
+We visually compare ﬂow results for one example in Fig-
+ure 8, which shows that our ﬂow estimate contains more
+motion details. In Figure 9, we show an extensive compar-
+ison of results produced by a number of state-of-the-art op-
+tical ﬂow methods, including those employing non-convex
+Figure 9. Extensive visual comparison.
+penalty functions [4, 21], using TV/L1 model to reject out-
+liers [7], minimizing energy in a continuous-discrete fash-
+ion [14], and applying advanced smoothness terms to han-
+dle motion discontinuity [26, 22, 23]. The inadequate abil-
+ity to handle large motion discrepancy on narrow objects
+in the traditional multiscale variational framework makes
+many results still lack of a few details.
+5.3. Large(cid:173)Displacement Optical Flow Estimation
+Our method can naturally deal with large-displacement
+ﬂow estimation without any modiﬁcation on the framework.
+Figure 10 shows an example containing signiﬁcant artic-
+ulated motion of a running person (published in [6]). (a)
+shows a two-object-overlaid image from the HumanEva-II
+benchmark dataset. Note that the fast foot movement can-
+not be estimated correctly in the conventional coarse-to-ﬁne
+scheme [7], as shown in Figure 10(f). (b) shows the back-
+ward warping result using out dense ﬂow estimate. The
+close-ups are shown in (d) and (e) for comparison. Our
+method successfully recovers the shape of the left foot.
+Note that the pixels in the occluded region are unrecover-
+able for all optical ﬂow estimation methods. The ﬂow mag-
+nitude maps are shown in the second row. The maps in (g)
+and (h) are produced by the methods of [6] and [20], both
+of which dedicate to large-displacement ﬂow estimation and
+Method
+Avg. AAE Rank
+Avg. EPE Rank
+Table 3. The average ranking of the methods with top performance on the Middlebury optical ﬂow evaluation website (at the time of
+submission). The two types of ranking are based on average angular errors (AAEs) and average end-point errors (EPEs) respectively.
+do not perform best in handling small displacement motion.
+Several other examples are included in [24].
+6. Concluding Remarks
+In this paper, we have presented a novel optical ﬂow
+estimation method to reduce the reliance on the coarse
+level ﬂow estimation in the variational setting for small-size
+salient motion structure estimation. Other main contribu-
+tions include the selective combination of color and gradi-
+ent constraints, feature matching to ﬁnd appropriate motion
+candidates, the mean ﬁeld approximation to simplify opti-
+mization, and a variable splitting technique to enable fast
+and reliable ﬂow estimation.
+It is notable that although the sparse feature matching is
+a useful strategy to ﬁnd novel ﬂow candidates, occasion-
+ally it might not perform well enough especially when a
+very small region is entirely textureless. Exhaustive search
+can be used to solve this problem with higher computational
+cost.
+References
+[1] P. Anandan. A computational framework and an algorithm
+[9] D. Geiger and F. Girosi. Parallel and deterministic algo-
+rithms for mrfs surface reconstruction and integration. A.I.
+Memo 1114, MIT, 1989.
+[10] D. Goldfarb and W. Yin. Parametric maximum ﬂow algo-
+rithms for fast total variation minimization. Technical Report
+07-09, Rice University, 2007.
+continuous optimization for optical ﬂow estimation.
+CVPR, 2008.
+[15] D. G. Lowe. Distinctive image features from scale-invariant
+[19] M. Sizintsev and R. P. Wildes. Efﬁcient stereo with accurate
+[20] F. Steinbr¨ucker and T. Pock. Large displacement optical ﬂow
+computation without warping. In ICCV, 2009.
+[24] L. Xu, J. Jia, and Y. Matsushita. A uniﬁed framework for
+large- and small-displacement optical ﬂow estimation. Tech-
+nical report, The Chinese University of Hong Kong, 2010.
+www.cse.cuhk.edu.hk/%7eleojia/projects/flow/index.html.

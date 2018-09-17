@@ -1,0 +1,706 @@
+Joint Graph Decomposition & Node Labeling: Problem, Algorithms, Applications
+Evgeny Levinkov1, Jonas Uhrig2,3, Siyu Tang1, Mohamed Omran1, Eldar Insafutdinov1,
+Alexander Kirillov4, Carsten Rother4, Thomas Brox2, Bernt Schiele1 and Bjoern Andres1
+1Max Planck Institute for Informatics, Saarland Informatics Campus, Saarbr¨ucken, Germany
+2Computer Vision Lab, University of Freiburg, Germany
+3Daimler AG R&D, Sindelﬁngen, Germany
+4Computer Vision Lab, Technische Universit¨at Dresden, Germany
+Abstract
+We state a combinatorial optimization problem whose
+feasible solutions deﬁne both a decomposition and a node
+labeling of a given graph. This problem offers a common
+mathematical abstraction of seemingly unrelated computer
+vision tasks, including instance-separating semantic segmen-
+tation, articulated human body pose estimation and multiple
+object tracking. Conceptually, the problem we state gener-
+alizes the unconstrained integer quadratic program and the
+minimum cost lifted multicut problem, both of which are NP-
+hard. In order to ﬁnd feasible solutions efﬁciently, we deﬁne
+two local search algorithms that converge monotonously to
+a local optimum, offering a feasible solution at any time. To
+demonstrate their effectiveness in tackling computer vision
+tasks, we apply these algorithms to instances of the prob-
+lem that we construct from published data, using published
+algorithms. We report state-of-the-art application-speciﬁc
+accuracy for the three above-mentioned applications.
+1. Introduction and Related Work
+Graphs are a ubiquitous structure in the ﬁeld of computer
+vision. In this article, we state an optimization problem
+whose feasible solutions deﬁne both a decomposition and
+a node labeling of a given graph (Fig. 1). We deﬁne and
+implement two local search algorithms for this problem that
+converge monotonously to a local optimum. The problem
+that we state is abstract enough to specialize to seemingly
+unrelated computer vision tasks. This abstraction allows
+us to apply the algorithms we deﬁne, without changes, to
+three distinct computer vision tasks: multiple object tracking,
+instance-separating semantic segmentation and articulated
+human body pose estimation. We report state-of-the-art
+application-speciﬁc accuracy for these three applications.
+(a) Decomposition
+(b) Node Labeling
+Figure 1: This article studies an optimization problem whose
+feasible solutions deﬁne both a decomposition (a) and a node
+labeling (b) of a given graph G = (V, E). A decomposition
+of G is a partition Π of the node set V such that, for every
+V (cid:48) ∈ Π, the subgraph of G induced by V (cid:48) is connected. A
+node labeling of G is a map f : V → L from its node set V
+to a ﬁnite, non-empty set L of labels.
+depict objects, we need to decide if the object is the same.
+Tang et al. [35, 36] abstract this task as a graph decomposi-
+tion and node labeling problem w.r.t. a ﬁnite graph whose
+nodes are bounding boxes, and w.r.t. 01-labels indicating
+that a bounding box depicts an object. We generalize their
+problem to more labels and more complex objective func-
+tions. By applying this generalization to the data of Tang
+et al. [36], we obtain more accurate tracks for the multiple
+object tracking benchmark [25] than any published work.
+Instance-separating semantic segmentation [9, 10, 22, 31,
+32, 33, 42, 43] can be seen as a task requiring two classes of
+decisions: To every point in an image, we need to assign a
+label that identiﬁes a class of objects (e.g., human, car, bicy-
+cle). For every pair of points of the same class, we need to
+decide if the object is the same. Kroeger et al. [21] state this
+problem as a multi-terminal cut problem w.r.t. a (super)pixel
+adjacency graph of the image. We generalize their prob-
+lem to larger feasible sets. While Kroeger et al. [21] show
+qualitative results, we apply our algorithms to instances of
+the problem from the KITTI [13] and Cityscapes [9] bench-
+marks, obtaining more accurate results for Cityscapes than
+any published work.
+Articulated human body pose estimation can be seen as a
+task requiring two classes of decisions: For every point in
+an image, we need to decide whether it depicts a part of the
+human body. For every pair of points that depict body parts,
+we need to decide if they belong to the same body. Pishchulin
+et al. [29] and Insafutdinov et al. [15] abstract this problem
+as a graph decomposition and node labeling problem w.r.t. a
+ﬁnite graph whose nodes are putative detections of body
+parts and w.r.t. labels that idenﬁty body part classes (head,
+wrist, etc.) and background. We generalize their problem to
+more complex objective functions. By reducing the running
+time for this task compared to their branch-and-cut algorithm
+(that computes also lower bounds), we can tackle instances
+of the problem with more nodes. This allows us to obtain
+more accurate pose estimates for the MPII Human Pose
+Dataset [2] than any published work.
+Formally, the problem we propose and refer to as the min-
+imum cost node labeling lifted multicut problem, NL-LMP,
+generalizes the NP-hard unconstrained integer quadratic pro-
+gram, UIQP, that has been studied intensively in the context
+of graphical models [16], and also generalizes the NP-hard
+minimum cost lifted multicut problem, LMP [18]. Unlike in
+pure node labeling problems such as the UIQP, neighboring
+nodes with the same label can be assigned to distinct com-
+ponents, and neighboring nodes with distinct labels can be
+assigned to the same component. Unlike in pure decomposi-
+tion problems such as the LMP, the cost of assigning nodes
+to the same component or distinct components can depend
+on node labels. Also unlike in the LMP, constraining nodes
+with the same label to the same component constrains the
+feasible decompositions to be k-colorable, with k ∈ N the
+number of labels. For k = 2 in particular, this constrained
+NL-LMP specializes to the well-known MAX-CUT problem.
+In order to ﬁnd feasible solutions of the NL-LMP efﬁ-
+ciently, we deﬁne and implement two local search algorithms
+that converge monotonously to a local optimum, offering a
+feasible solution at any time. These algorithms do not com-
+pute lower bounds. They output feasible solutions without
+approximation certiﬁcates. Hence, they belong to the class
+of primal feasible heuristics for the NL-LMP. The ﬁrst algo-
+rithm we deﬁne and refer to as alternating Kernighan-Lin
+search with joins and node relabeling, KLj/r, is a general-
+ization of the algorithm KLj of Keuper et al. [18] and of
+Iterated Conditional Modes (ICM). The second algorithm
+we deﬁne and refer to as joint Kernighan-Lin search with
+joins and node relabeling, KLj∗r, is a generalization of KLj
+that transforms a decomposition and a node labeling jointly,
+in a novel manner. Both algorithms build on seminal work
+of Kernighan and Lin [17].
+In this section, we deﬁne the minimum cost node labeling
+lifted multicut problem, NL-LMP. Sections 2.1–2.3 offer
+an intuition for its parameters, feasible solutions and cost
+function. Section 2.4 offers a concise and rigorous deﬁnition.
+Section 2.5 discusses special cases.
+2.1. Parameters
+Any instance of the NL-LMP is deﬁned with respect to the
+following parameters:
+yvw
+cvl xvl
+We deﬁne the NL-LMP rigorously and concisely in the
+min
+Below, we show that the NL-LMP generalizes the UIQP.
+This connects the NL-LMP to work on graphical models with
+second-order functions and ﬁnitely many labels. In addition,
+we show that NL-LMP generalizes the LMP, connecting the
+NL-LMP to recent work on lifted multicuts. Finally, we
+show that the NL-LMP is general enough to express subgraph
+selection, connectedness and disconnectedness constraints.
+By (14), inactive nodes are not joined with active nodes
+in the same component. By (15), cutting an inactive node
+from an active node has zero cost. By (16), joining inactive
+nodes has cost c†, possibly zero. Choosing c† large enough
+implements an additional constraint proposed in [35] that
+inactive nodes are necessarily isolated. It is by this constraint
+and by a two-elementary label set that [35] is a specialization
+of the NL-LMP.
+2.5.4 (Dis-)Connectedness Constraints
+Some applications require us to constrain certain nodes to be
+in distinct components. One example is instance-separating
+semantic segmentation where nodes with distinct labels nec-
+essarily belong to distinct segments [21]. Other applications
+require us to constrain certain nodes to be in the same com-
+ponent. One example is articulated human body pose esti-
+mation for a single human in the optimization framework of
+[29] where every pair of active nodes necessarily belongs to
+the same human. Another example is connected foreground
+segmentation [27, 30, 34, 38] in which every pair of distinct
+foreground pixels necessarily belongs to the same segment.
+The NL-LMP is general enough to model a combination of
+connectedness constraints and disconnectedness constraints
+by sufﬁciently large costs: In order to constrain distinct
+nodes v, w ∈ V with labels l, l(cid:48) ∈ L to be in the same
+component, one introduces an edge (v, w) ∈ A, a large
+enough c∗ ∈ N and costs c
+vw,l(cid:48)l = c∗.
+(cid:28)
+In order to constrain distinct nodes v, w ∈ V with labels
+l, l(cid:48) ∈ L to be in distinct components, one introduces an
+edge (v, w) ∈ A, a large enough c∗ ∈ N and costs c∼ such
+that c∼
+In this section, we deﬁne two local search algorithms that
+compute feasible solutions of the NL-LMP efﬁciently. Both
+algorithms attempt to improve a current feasible solution
+recursively by transformations. One class of transformations
+alters the node labeling of the graph by replacing a single
+node label. A second class of transformations alters the de-
+composition of the graph by moving a single node from one
+component to another. A third class of transformations alters
+the decomposition of the graph by joining two components.
+As proposed by Kernighan and Lin [17] and generalized
+to the LMP by Keuper et al. [18], a local search is carried out
+not over the set of individual transformations of the current
+feasible solution but over a set of sequences of transforma-
+tions. Complementary to this idea, we deﬁne and implement
+two schemes of combining transformations of the decompo-
+sition of the graph with transformations of the node labeling
+of the graph. This leads us to deﬁne two local search algo-
+rithms for the NL-LMP.
+3.1. Encoding Feasible Solutions
+such that
+3.2. Transforming Feasible Solutions
+To improve feasible solutions of the NL-LMP recursively,
+we consider three transformations of the encodings λ and µ:
+For any node v ∈ V and any label l ∈ L, the transforma-
+tion Tvl : LV → LV : λ (cid:55)→ λ(cid:48) changes the label of the node
+v to l, i.e.
+the transformation T (cid:48)
+component index of the node v to m, i.e.
+3.3. Searching Feasible Solutions
+We now deﬁne two local search algorithms that attempt to
+improve an initial feasible solution recursively, by applying
+the transformation deﬁned above. Initial feasible solutions
+are given, for instance, by the ﬁnest decomposition of the
+graph G that puts every node in a distinct component, or by
+the coarsest decomposition of the graph G that puts every
+node in the same component, each together with any node
+labeling. We ﬁnd an initial feasible solution for our local
+search algorithm by ﬁrst ﬁxing an optimal label for every
+node independently and by then solving the resulting LMP,
+i.e., (8) for the ﬁxed labels x ∈ XV L, by means of greedy
+agglomerative edge contraction [18].
+KLj/r Algorithm. The ﬁrst local search algorithm we
+deﬁne, alternating Kernighan-Lin search with joins and node
+relabeling, KLj/r, alternates between transformations of the
+node labeling and transformations of the decomposition. For
+a ﬁxed decomposition, the labeling is transformed by Func. 1
+which greedily updates labels of nodes independently. For a
+ﬁxed labeling, the decomposition is transformed by Func. 2,
+without those parts of the function that are written in green,
+i.e., precisely the algorithm KLj of [18]. (All symbols that
+appear in the pseudo-code are deﬁned above, except the
+iteration counter t, cost differences δ, ∆, and 01-vectors α
+used for bookkeeping, to avoid redundant operations.)
+KLj∗r Algorithm. The second local search algorithm
+we deﬁne, joint Kernighan-Lin search with joins and node
+relabeling, KLj∗r, transforms the decomposition and the
+node labeling jointly, by combining the transformations (19)–
+(21) in a novel manner. It is given by Func. 2, with those
+parts of the function that are written in green.
+Like the alternating algorithm KLj/r, the joint algorithm
+KLj∗r updates the labeling for a ﬁxed decomposition (calls
+of Func. 1 from Func. 2). Unlike the alternating algorithm
+KLj/r, the joint algorithm KLj∗r updates the decomposition
+and the labeling also jointly. This happens in Func. 3 that is
+called from KLj∗r, with the part that is written in green.
+Func. 3 looks at two components V := µ−1(m) and
+W := µ−1((cid:48)m) of the current decomposition. It attempts to
+improve the decomposition as well as the labeling by moving
+a node from V to W or from W to V and by simultaneously
+changing its label. As proposed by Kernighan and Lin [17],
+else
+Func. 3 does not make such transformations greedily but ﬁrst
+constructs a sequence of such transformations greedily and
+then executes the ﬁrst k with k chosen so as to decrease the
+objective value maximally. KLj/r constructs a sequence of
+transformations analogously, but the node labeling remains
+ﬁxed throughout every transformation of the decomposition.
+Thus, KLj∗r is a local search algorithm whose local neigh-
+borhood is strictly larger than that of KLj/r.
+Our C++ implementation computes cost differences in-
+crementally and solves the optimization problem over trans-
+continue
+(repair heuristic)
+formations by means of a priority queue, as described in
+detail in Appendix A. The time and space complexities are
+identical to those of KLj and are established in [18], as trans-
+formations that take linear time in the number of labels take
+constant time in the size of the graph.
+else
+else
+4. Applications
+We show applications of the proposed problem and algo-
+rithms to three distinct computer vision tasks: articulated
+human body pose estimation, multiple object tracking, and
+instance-separating semantic segmentation. For each task,
+we set up instances of the NL-LMP from published data,
+using published algorithms.
+4.1. Articulated Human Body Pose Estimation
+We turn toward applications of the NL-LMP and the algo-
+rithms KLj/r and KLj∗r to the task of estimating the articu-
+lated poses of all humans visible in an image. Pishchulin et
+al. [29] and Insafutdinov et al. [15] approach this problem
+via a graph decomposition and node labeling problem that
+we identify as a special case of the NL-LMP with c(cid:54)∼ = 0
+and with subgraph selection (Section 2.5.3). We relate their
+notation to ours in Appendix B. Nodes in their graph are
+putative detections of body parts. Labels deﬁne body part
+classes (head, wrist, etc.). In our notation, xvl = 1 indicates
+that the putative detection v is a body part of class l, and
+yvw = 1 indicates that the body parts v and w belong to
+distinct humans. The test set of [15] consists of 1758 such
+instances of the NL-LMP.
+To tackle these instances, Insafutdinov et al. deﬁne and
+implement a branch-and-cut algorithm in the integer linear
+programming software framework Gurobi. We refer to their
+published C++ implementation as B&C.
+Cost and time. In Fig. 2, we compare the convergence of
+B&C (feasible solutions and lower bounds) with the conver-
+gence of our algorithms, KLj/r and KLj∗r (feasible solutions
+only). Shown in this ﬁgure is the average objective value
+over the test set w.r.t. the absolute running time. Thanks to
+the lower bounds obtained by B&C, it can be seen from this
+ﬁgure that KLj/r and KL+r arrive at near optimal feasible
+solutions after 10−1 seconds, ﬁve orders of magnitude faster
+than B&C. This result shows that primal feasible heuristics
+for the NL-LMP, such as KLj/r and KLj∗r, are practically
+useful in the context of this application.
+Application-speciﬁc accuracy. In Tab. 1, we compare
+feasible solutions output by KLj/r and KLj∗r after conver-
+gence with those obtained by B&C after at most three hours.
+It can be seen from this table that the feasible solutions output
+by KLj/r and KLj∗r have lower cost and higher application-
+speciﬁc accuracy (Acc) on average. KLj∗r yields a lower
+average cost than KLj/r with slightly higher running time.
+The fact that lower cost does not mean higher application-
+speciﬁc accuracy is explained by the application-speciﬁc
+accuracy measure that does not penalize false positives.
+The shorter absolute running time of KLj/r and KLj∗r
+allows us to increase the number of nodes from 150, as in
+[15], to 420. It can be seen from the last two rows of Tab. 1
+that this increases the application-speciﬁc accuracy by 4%.
+KITTI KLj/r
+KITTI KLj∗r
+Figure 2: Convergence of B&C, KLj/r and KLj∗r in an appli-
+cation to the task of articulated human body pose estimation.
+Figure 3: Convergence of KLj/r and KLj∗r in an application
+to the task of instance-separating semantic segmentation.
+4.2. Instance-Separating Semantic Segmentation
+We turn toward applications of the NL-LMP and the al-
+gorithms KLj/r and KLj∗r to the task of instance-separating
+semantic image segmentation. We state this problem here
+as an NL-LMP whose nodes correspond to pixels in a given
+image, and whose labels deﬁne classes of objects (human,
+car, bicycle, etc.). In our notation, xvl = 1 indicates that the
+pixel v shows an object of class l, and yvw = 1 indicates
+that the pixels v and w belong to distinct objects.
+Speciﬁcally, we apply the algorithms KLj/r and KLj∗r
+to instances of the NL-LMP for the task of instance-
+separating semantic segmentation posed by the KITTI [13]
+and Cityscapes [9] benchmarks. For KITTI, we construct
+instances of the NL-LMP from data published by Uhrig et
+al. [37] as described in detail in Appendix C. For Cityscapes,
+we construct instances of the NL-LMP as follows. For costs
+(cid:28), we again use data of Uhrig et al. [37]. For costs c, we
+c
+use a ResNet-50 [14] network with dilated convolutions [7].
+We train the network in a fully convolutional manner with
+image crops (768 px·512 px) subjected to minimal data aug-
+mentation (horizontal ﬂips). More details are in Appendix C.
+Data
+KITTI validation [13]
+12.9
+21.1
+23.2
+Table 2: Comparison of KLj/r and KLj∗r in an application
+to the task of instance-separating semantic segmentation.
+Cost and time. In Fig. 3, we compare the convergence
+of KLj/r and KLj∗r. Shown in this ﬁgure w.r.t. the absolute
+running time are the average objective values over the KITTI
+and Cityscapes validation sets, respectively. It can be seen
+from this ﬁgure that KLj/r converges faster than KLj∗r. Both
+algorithms are practical for this application but not efﬁcient
+enough for video processing in real-time.
+Application-speciﬁc accuracy. In Tab. 2, we compare
+feasible solutions output by KLj/r and KLj∗r after conver-
+gence with the output of the algorithm of Uhrig et al [37].
+It can be seen from this table that the application of KLj/r
+and KLj∗r improves the application-speciﬁc average preci-
+sion, AP and AP50%. The AP of feasible solutions output by
+KLj∗r for the Cityscapes test set is higher than that of any
+published algorithm. A higher AP is reported by Kirillov et
+al. [20], who use the model and algorithms proposed in this
+paper with improved pairwise c
+KLj/r and KLj∗r reduce the number of false positives and
+false negatives. The average inverse running time per frame
+of a video sequence (column “Hz” in the table) is better for
+KLj/r by a margin than for any other algorithm. Overall,
+these results show the practicality of the NL-LMP in conjunc-
+tion with the local search algorithms KLj/r and KLj∗r for
+applications in multiple object tracking.
+Running time [s]
+5. Conclusion
+Figure 4: Convergence of the algorithms KLj/r and KLj∗r in
+an application to the task of multiple object tracking.
+4.3. Multiple Object Tracking
+We turn toward applications of the NL-LMP and the al-
+gorithms KLj/r and KLj∗r to the task of multiple object
+tracking. Tang et al. [35] approach this problem via a graph
+decomposition and node labeling problem that we identify
+as a special case of the NL-LMP with two labels and sub-
+graph selection (Sec. 2.5.3). We relate their notation to ours
+rigorously in Appendix D. Nodes in their graph are putative
+detections of persons. In our notation, xvl = 1 indicates that
+the putative detection v is active, and yvw = 1 indicates that
+the putative detections v and w are of distinct persons. For
+the test set of the multiple object tracking benchmark [25],
+Tang et al. construct seven such instances of the NL-LMP.
+To tackle these large instances, in [36] Tang et al. solve
+the subgraph suppression problem ﬁrst and independently,
+by thresholding on the detections scores, and then solve the
+minimum cost multicut problem for the remaining subgraph
+by means of the algorithm KLj of [18], without re-iterating.
+Here, we apply to the joint NL-LMP the algorithms KLj/r
+and KLj∗r and compare their output to that of [36] and of
+other top-performing algorithms [8, 12, 19]. We use the
+same data as in [36], therefore the performance gain is due
+to our algorithms that solve the full problem [35].
+Cost and time. The convergence of the algorithms KLj/r
+and KLj∗r is shown in Fig. 4. It can be seen from this ﬁgure
+that KLj/r converges faster than KLj∗r.
+Application-speciﬁc accuracy. We compare the feasible
+solutions output by KLj/r and KLj∗r to the state-of-the-art
+for the benchmark [25]. To this end, we report in Tab. 3 the
+standard CLEAR MOT metric, including: multiple object
+tracking accuracy (MOTA), multiple object tracking preci-
+sion (MOTP), mostly tracked object (MT), mostly lost (ML)
+and tracking fragmentation (FM). MOTA combines identity
+switches (ID Sw), false positives (FP) and false negatives
+(FN) and is most widely used. Our feasible solutions are
+published also at the benchmark website unser the names
+NLLMP (KLj/r) and NLLMPj (KLj∗r). It is can be seen
+from Tab. 3 that the feasible solutions obtained by KLj/r and
+KLj∗r rank ﬁrst in MOTA and MOTP. Compared to [36],
+We have stated the minimum cost node labeling lifted
+multicut problem, NL-LMP, an NP-hard combinatorial op-
+timization problem whose feasible solutions deﬁne both a
+decomposition and a node labeling of a given graph. We
+have deﬁned and implemented two local search algorithms,
+KLj/r and KLj∗r, that converge monotonously to a local op-
+timum, offering a feasible solution at any time. We have
+shown applications of these algorithms to the tasks of articu-
+lated human body pose estimation, multiple object tracking
+and instance-separating semantic segmentation, obtaining
+state-of-the-art application-speciﬁc accuracy. We conclude
+that the NL-LMP is a useful mathematical abstraction in the
+ﬁeld of computer vision that allows researchers to apply
+the same optimization algorithm to diverse computer vision
+tasks. To foster collaboration between the ﬁelds of computer
+vision and combinatorial optimization, we make our code
+publicly available at https://github.com/bjoern-andres/graph
+[4] W. Brendel, M. Amer, and S. Todorovic. Multiobject tracking
+[8] W. Choi. Near-online multi-target tracking with aggregated
+[11] L. Fagot-Bouquet, R. Audigier, Y. Dhome, and F. Lerasle.
+Improving multi-frame data association with sparse represen-
+tations for robust near-online multi-object tracking. In ECCV,
+2016. 1
+[12] L. Fagot-Bouquet, R. Audigier, Y. Dhome, and F. Lerasle.
+Improving multi-frame data association with sparse represen-
+tations for robust near-online multi-object tracking. In ECCV,
+2016. 8, 9
+lutional networks for biomedical image segmentation.
+MICCAI, 2015. 1
+[34] J. St¨uhmer and D. Cremers. A fast projection method for con-
+nectivity constraints in image segmentation. In EMMCVPR,
+2015. 4
+A. Implementation Details
+Func. 1 and 3 choose local transformations that decrease
+the cost optimally. Our implementation computes cost differ-
+ences incrementally, as proposed by Kernighan and Lin [17].
+The exact computations are described below.
+Transforming the Labeling. Func. 1 repeatedly chooses
+a node ˆv and a label ˆl such that labeling ˆv with ˆl decreases
+the cost maximally. I.e., Func. 1 repeatedly solves the opti-
+mization problem
+(ˆv, ˆl) ∈ argmin
+(v,l)∈V ×L
+While ϕ(xλt, yµt) is constant, it is more efﬁcient to mini-
+mize the difference ϕ(xTvl(λt), yµt ) − ϕ(xλt, yµt) than to
+minimize ϕ(xTvl(λt), yµt), as the difference can be com-
+puted locally, considering only the neighbors w of v in G(cid:48):
+Initially, i.e., for t = 0, we compute ∆0,vl for every node v
+and every label l. In subsequent iterations, i.e., for t ∈ N
+and the minimizer (ˆv, ˆl) of (22) chosen in this iteration, we
+update cost differences for all neighbors w of ˆv in G(cid:48) and
+all labels l ∈ L. The update rule is written below for an
+edge (w, ˆv) ∈ A. The update for an edge in the opposite
+direction is analogous. Below, (24) subtracts the costs due
+to ˆv being labeled λt(ˆv) (which is possibly outdated), while
+(25) adds the costs due to ˆv having obtained a new and
+possibly different label ˆl.
+Transformation of Labeling and Decomposition. The
+algorithm KLj of [18] for the minimum cost lifted multi-
+cut problem generalizes the Kernighan-Lin-Algorithm [17]
+for the minimum cost multicut problem. The algorithms
+KLj/r and KLj∗r we deﬁne further generalize KLj to the NL-
+LMP. The critical part is Func. 3 that solves the optimization
+problem
+Let us consider w.l.o.g. two sets of vertices A and B repre-
+senting two neighboring components of the graph G. Then
+we compute ∀v ∈ A ∪ B,∀l ∈ L:
+ˆvw,ˆll
+After that B = B ∪ {ˆv}. In the above equations, the ex-
+pression in parenthesis cancels the current contribution for
+vertex w, that assumed ˆv was labeled λt(v) and belonged
+to partition A. For the case when |L| = 1 and c(cid:54)∼ = c∼ the
+above equations simplify to exactly the ones as in [17], but
+multiplied by 2, because in our objective we have two terms
+that operate on the edges simultaneously.
+As we generalize [18] by an additional loop over the set
+L of labels, the analysis of the time complexity carries over
+from [18] with an additional multiplicative factor |L|.
+B. Articulated Human Body Pose Estimation
+B.1. Problem Statement
+Pishchulin et al. [29] introduce a binary cubic problem
+w.r.t. a set C of body joint classes and a set D of putative
+detections of body joints. Every feasible solution is a pair
+constrained by the following system of linear inequalities:
+xdc
+The objective function has the form below with coefﬁcients
+We identify the solutions of this problem with the solu-
+tions of the NL-LMP w.r.t. the complete graphs G = G(cid:48) =
+and
+Quantitative results for each body joint are shown in
+Tab. 4. Qualitative results for the MPII Human Pose dataset
+are shown in Fig. 5.
+C. Instance-Separating Semantic Segmentation
+We tackle the problem of instance-separating seman-
+tic segmentation by adapting the approach of Uhrig et
+al. [37]. They propose three complementary representations,
+which are learned jointly by a fully convolutional network
+(FCN) [24], that facilitate the problem of separating individ-
+ual objects: Semantics, depth, and directions towards object
+centers. To extract object instances, a template matching
+approach was proposed, followed by a proposal fusion.
+Instead of template matching and clustering, we rely on
+a generic graphical formulation of the problem using only
+the three predicted output scores from the network of Uhrig
+et al. [37], together with a suitable formulation of unary c
+and pairwise terms c∼ and c
+(cid:28). As there might be up to two
+million nodes for a direct mapping of pixel scores to the
+graph, we report performance on different down-sampled
+versions to reduce overall computation time and reduce the
+impact of noise in high resolutions. Results on KITTI were
+achieved on half of the input resolution, for Cityscapes we
+down-sample the FCN scores by a factor of eight before the
+graph optimization.
+C.1. Cut Costs Details
+To deﬁne cut costs between connected pixels in the graph,
+we use an equally weighted sum of the three following com-
+ponents:
+The probability of fusing two pixels v and w of different
+semantic classes is 1 − p(λ(v) = a, λ(w) = b), the proba-
+bility of confusing label class a and b, which was computed
+from the training set.
+To incorporate the depth and center direction channels,
+we neither use scores nor argmax predictions directly. In-
+stead, we weight the predicted softmax scores for all non-
+background classes with their corresponding class to recover
+a continuous center direction and depth map. As objects
+at different depth values should be separated, we generate
+higher cut probabilities for those pixels. From training data,
+we found the probability of splitting two neighboring pixels
+to be one when the predicted depth values differ by more
+than 1.6 units.
+Figure 5: Pose estimation results on the MPII Human Pose dataset.
+If center directions have opposite orientations, there
+should be a high probability for splitting the two pixels.
+However, opposite directions also appear at the center of
+an object. Therefore, we deﬁne the cut probability as the
+minimum of an angular inconsistency, which punishes two
+pixels that point at different directions, as well as a center
+inconsistency, which punishes if two pixels do not point at
+each other, c.f . Fig. 6. This induces high cut probabilities
+at the borders of objects, as directions of pixels should have
+opposite center direction. The probability of splitting two
+neighbors due to direction inconsistency was found to be
+one at 90 degrees.
+C.2. Dataset Speciﬁcs
+For the KITTI dataset [6, 13], the only pixel-level anno-
+tated object class is car. For Cityscapes [9] however, there
+Instance center directions with color coding
+Figure 6:
+from [37]. Near object centers, directions point towards
+each other (center consistency). Within colored regions, di-
+rections have similar angles (angular consistency). Along
+object borders, directions are inconsistent in both ways.
+are 8 different object classes (person, rider, car, truck, bus,
+train, motorcycle, bicycle), together with 11 background
+classes versus 1 background class for KITTI. We found that
+the network model used by Uhrig et al. [37] performs close
+to optimum for semantic labeling on KITTI data, however
+has some ﬂaws on Cityscapes.
+Therefore we chose a more sophisticated network struc-
+ture, which performs much better on the many different
+classes on Cityscapes. We use a ResNet [14] with dilated
+convolutions [7] for cut costs c, namely the unary terms con-
+sisting of scores for the problem of semantic labeling, which
+was trained independently on the Cityscapes dataset [9].
+To obtain the unaries for Cityscapes, we use a slightly
+modiﬁed ResNet-50 network. We introduce dilated convolu-
+tions in the conv4 x and conv5 x layers to increase the output
+resolution from 1/32 to 1/8 of the input resolution. We then
+remove the ﬁnal average pooling layer and for classiﬁcation
+use a convolutional layer with 5 × 5 dilated kernels with a
+dilation size of 12. This is identical to the best performing
+basic ResNet-50 variant reported in ([39], Table 1).
+Due to GPU memory constraints, we train with 512px ×
+768px crops randomly sampled from the full-resolution train-
+ing set images. We apply minimal data augmentation, i.e.
+random horizontal ﬂips, and train with a batch size of 5. We
+train the network for 60000 iterations using the Adam solver
+with an initial learning rate of 0.000025, weight decay of
+0.0005 and momentum of 0.9. We use the ”poly” learning
+rate policy to gradually reduce the learning rate during train-
+ing with the power parameter set to 0.9, which as reported
+in both [23] and [5] yields better results than the commonly
+used ”step” reduction policy.
+test-time we apply the network to overlapping
+1024px × 768px crops of the full-resolution test set images
+and stitch the results to obtain the ﬁnal predictions.
+For KITTI however, we stick with the original semantic
+scores. The only adaptation for our deﬁnition of the semantic
+cut costs c is an additional weighting of the semantic scores:
+As depth and center directions are only estimated for objects,
+Table 5: Comparison of algorithms for instance segmentation
+on the KITTI [6] datasets using the mean average precision
+metrics introduced in [9].
+all three channels contain knowledge of the objectness of a
+certain pixel. We therefore use the semantic scores weighted
+by the depth and direction scores for objects as unaries. This
+increases robustness of the semantics as all three channels
+must agree to achieve high scores.
+C.3. Post Processing
+Using the unary and pairwise terms deﬁned above, we
+solve the graph for labels and components with our proposed
+algorithms KLj/r and KLj∗r. As the center direction repre-
+sentation inherently cannot handle cases of full occlusions,
+e.g. if a bicycle is split into two connected components by
+a pedestrian in front of it, we apply a similar component
+fusion technique as proposed in [37]: We accumulate di-
+rection predictions within each component and fuse it with
+another suitable component when direction predictions are
+clearly overshooting into a certain direction. We compare
+performance of the raw graph output as well as the fused
+instances in Tab. 5 (top).
+C.4. Detailed Results
+As there are different metrics used by related approaches,
+we report performance on the Cityscapes [9] and KITTI [6,
+13] dataset using both proposed metrics. The instance score
+required for the evaluation on Cityscapes was chosen as the
+size of the instance in pixels multiplied by its mean depth
+- this score achieved slightly better results compared to a
+constant score.
+For KITTI, we outperform all existing approaches us-
+ing the Cityscapes metric (without adapting the semantic
+scores of Uhrig et al. [37]), which averages precision and
+recall performance for multiple overlaps, c.f . Tab. 5 (bottom).
+We evaluate the performance using KLj/r or KLj∗r and raw
+graph output (raw) or the post-processed results using above
+described fusion (fused) in Tab. 5 (top). Using the KITTI
+metrics, we perform among the best results while having a
+slight preference of Recall over Precision, c.f . Tab. 6.
+For Cityscapes, we report evaluation metrics using both
+the raw scores of Uhrig et al. [37] as well as our ﬁnal pro-
+posed model using the semantic scores of a ResNet [14]
+IoU AvgFP AvgFN InsPr
+InsRe
+Table 6: Comparison of algorithms for instance segmentation
+on the KITTI test dataset [6] using metrics proposed in [42].
+Ours describes the performance of our KLj∗r variant.
+Table 7: Comparison of performance on Cityscapes test
+using the mean average precision metric AP50% [9]. Ours
+describes the performance of our KLj∗r (ResNet) variant.
+together with the center direction and depth scores of Uhrig
+et al. [37], c.f . Tab. 8 (top). Using our adapted ResNet
+version, we outperform the currently published state-of-the
+art, c.f . Tab. 8 (bottom). Note that we report signiﬁcantly
+better performance for the large vehicle classes truck, bus,
+and trains despite starting from the same FCN output, c.f .
+Tab. 7. This comes from incorporating confusion probabili-
+ties between unreliable classes as well as optimizing jointly
+for semantics and instances.
+C.5. Qualitative Results
+See Fig. 7 for some qualitative results for our instance-
+separating semantic segmentation on the Cityscapes valida-
+tion dataset [9]. It can be seen that we perform equally well
+for large and small objects, we only tend to fuse pedestrians
+too often, which explains the worse performance on pedes-
+trians - c.f . the mother with her child on the right in the
+last row of Fig. 7. Also, the impact of the proposed post-
+processing based on the fusion algorithm proposed by Uhrig
+et al. [37] can be seen clearly: Due to noisy predictions, the
+raw graph output is often highly over-segmented. However,
+after applying the fusion step, most objects are correctly
+fused.
+C.6. Outlook
+The reason for the varying performance for objects of
+different semantic classes certainly comes from their very
+different typical forms, which we do not incorporate in our
+general approach. Uhrig et al. [37] use different aspect
+Table 8: Comparison of algorithms for instance segmentation
+on the Cityscapes (CS) dataset [9] using the mean average
+precision metrics introduced in [9].
+ratios for their sliding object templates to cope for these
+changes. In future work, we would like to combine multiple
+graphs for different semantic classes to boost individual class
+performance. Also, the predicted FCN representation and
+scores will be adjusted for better suiting the requirements of
+our graph optimization.
+D. Multiple Object Tracking
+D.1. Problem Statement
+The objective function has the form below with coefﬁcients
+α and β.
+βeye
+RGB Image
+Semantics GT
+Semantics Pred.
+Instance GT
+Fused Inst. Pred.
+Figure 7: Visualization of our predictions on the Cityscapes validation dataset [9], where we can compare with corresponding
+ground truth (GT) and show respective RGB images.
+D.2. Further Results
+A complete evaluation of our experimental results in
+terms of the Multiple Object Tracking Challenge 2016 can
+be found at http://motchallenge.net/tracker/NLLMPa.

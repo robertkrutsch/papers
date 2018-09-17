@@ -1,0 +1,717 @@
+Frustum PointNets for 3D Object Detection from RGB-D Data
+Chenxia Wu2
+Leonidas J. Guibas1
+1Stanford University
+3UC San Diego
+Abstract
+In this work, we study 3D object detection from RGB-
+D data in both indoor and outdoor scenes. While previous
+methods focus on images or 3D voxels, often obscuring nat-
+ural 3D patterns and invariances of 3D data, we directly
+operate on raw point clouds by popping up RGB-D scans.
+However, a key challenge of this approach is how to efﬁ-
+ciently localize objects in point clouds of large-scale scenes
+(region proposal). Instead of solely relying on 3D propos-
+als, our method leverages both mature 2D object detec-
+tors and advanced 3D deep learning for object localization,
+achieving efﬁciency as well as high recall for even small ob-
+jects. Beneﬁted from learning directly in raw point clouds,
+our method is also able to precisely estimate 3D bound-
+ing boxes even under strong occlusion or with very sparse
+points. Evaluated on KITTI and SUN RGB-D 3D detection
+benchmarks, our method outperforms the state of the art by
+remarkable margins while having real-time capability.
+1. Introduction
+Recently, great progress has been made on 2D image un-
+derstanding tasks, such as object detection [10] and instance
+segmentation [11]. However, beyond getting 2D bounding
+boxes or pixel masks, 3D understanding is eagerly in de-
+mand in many applications such as autonomous driving and
+augmented reality (AR). With the popularity of 3D sensors
+deployed on mobile devices and autonomous vehicles, more
+and more 3D data is captured and processed. In this work,
+we study one of the most important 3D perception tasks –
+3D object detection, which classiﬁes the object category and
+estimates oriented 3D bounding boxes of physical objects
+from 3D sensor data.
+While 3D sensor data is often in the form of point clouds,
+how to represent point cloud and what deep net architec-
+tures to use for 3D object detection remains an open prob-
+lem. Most existing works convert 3D point clouds to im-
+ages by projection [30, 21] or to volumetric grids by quan-
+tization [33, 18, 21] and then apply convolutional networks.
+∗Majority of the work done as an intern at Nuro, Inc.
+depth to point cloud
+Figure 1. 3D object detection pipeline. Given RGB-D data, we
+ﬁrst generate 2D object region proposals in the RGB image using a
+CNN. Each 2D region is then extruded to a 3D viewing frustum in
+which we get a point cloud from depth data. Finally, our frustum
+PointNet predicts a (oriented and amodal) 3D bounding box for
+the object from the points in frustum.
+This data representation transformation, however, may ob-
+scure natural 3D patterns and invariances of the data. Re-
+cently, a number of papers have proposed to process point
+clouds directly without converting them to other formats.
+For example, [20, 22] proposed new types of deep net archi-
+tectures, called PointNets, which have shown superior per-
+formance and efﬁciency in several 3D understanding tasks
+such as object classiﬁcation and semantic segmentation.
+While PointNets are capable of classifying a whole point
+cloud or predicting a semantic class for each point in a point
+cloud, it is unclear how this architecture can be used for
+instance-level 3D object detection. Towards this goal, we
+have to address one key challenge: how to efﬁciently pro-
+pose possible locations of 3D objects in a 3D space. Imi-
+tating the practice in image detection, it is straightforward
+to enumerate candidate 3D boxes by sliding windows [7]
+or by 3D region proposal networks such as [27]. However,
+the computational complexity of 3D search typically grows
+cubically with respect to resolution and becomes too ex-
+pensive for large scenes or real-time applications such as
+autonomous driving.
+Instead, in this work, we reduce the search space fol-
+lowing the dimension reduction principle: we take the ad-
+vantage of mature 2D object detectors (Fig. 1). First, we
+extract the 3D bounding frustum of an object by extruding
+2D bounding boxes from image detectors. Then, within the
+3D space trimmed by each of the 3D frustums, we consecu-
+tively perform 3D object instance segmentation and amodal
+3D bounding box regression using two variants of Point-
+Net. The segmentation network predicts the 3D mask of
+the object of interest (i.e. instance segmentation); and the
+regression network estimates the amodal 3D bounding box
+(covering the entire object even if only part of it is visible).
+In contrast to previous work that treats RGB-D data as
+2D maps for CNNs, our method is more 3D-centric as we
+lift depth maps to 3D point clouds and process them us-
+ing 3D tools. This 3D-centric view enables new capabilities
+for exploring 3D data in a more effective manner. First,
+in our pipeline, a few transformations are applied succes-
+sively on 3D coordinates, which align point clouds into a
+sequence of more constrained and canonical frames. These
+alignments factor out pose variations in data, and thus make
+3D geometry pattern more evident, leading to an easier job
+of 3D learners. Second, learning in 3D space can better ex-
+ploits the geometric and topological structure of 3D space.
+In principle, all objects live in 3D space; therefore, we be-
+lieve that many geometric structures, such as repetition, pla-
+narity, and symmetry, are more naturally parameterized and
+captured by learners that directly operate in 3D space. The
+usefulness of this 3D-centric network design philosophy has
+been supported by much recent experimental evidence.
+Our method achieve leading positions on KITTI 3D ob-
+ject detection [1] and bird’s eye view detection [2] bench-
+marks. Compared with the previous state of the art [5], our
+method is 8.04% better on 3D car AP with high efﬁciency
+(running at 5 fps). Our method also ﬁts well to indoor RGB-
+D data where we have achieved 8.9% and 6.4% better 3D
+mAP than [13] and [24] on SUN-RGBD while running one
+to three orders of magnitude faster.
+The key contributions of our work are as follows:
+• We propose a novel framework for RGB-D data based
+3D object detection called Frustum PointNets.
+• We show how we can train 3D object detectors un-
+der our framework and achieve state-of-the-art perfor-
+mance on standard 3D object detection benchmarks.
+• We provide extensive quantitative evaluations to vali-
+date our design choices as well as rich qualitative re-
+sults for understanding the strengths and limitations of
+our method.
+3D Object Detection from RGB-D Data Researchers
+have approached the 3D detection problem by taking var-
+ious ways to represent RGB-D data.
+Front view image based methods:
+[3, 19, 34] take
+monocular RGB images and shape priors or occlusion pat-
+terns to infer 3D bounding boxes.
+[15, 6] represent depth
+data as 2D maps and apply CNNs to localize objects in 2D
+image. In comparison we represent depth as a point cloud
+and use advanced 3D deep networks (PointNets) that can
+exploit 3D geometry more effectively.
+Bird’s eye view based methods: MV3D [5] projects Li-
+DAR point cloud to bird’s eye view and trains a region pro-
+posal network (RPN [23]) for 3D bounding box proposal.
+However, the method lags behind in detecting small objects,
+such as pedestrians and cyclists and cannot easily adapt to
+scenes with multiple objects in vertical direction.
+3D based methods:
+[31, 28] train 3D object classiﬁers
+by SVMs on hand-designed geometry features extracted
+from point cloud and then localize objects using sliding-
+window search. [7] extends [31] by replacing SVM with
+3D CNN on voxelized 3D grids. [24] designs new geomet-
+ric features for 3D object detection in a point cloud. [29, 14]
+convert a point cloud of the entire scene into a volumetric
+grid and use 3D volumetric CNN for object proposal and
+classiﬁcation. Computation cost for those method is usu-
+ally quite high due to the expensive cost of 3D convolutions
+and large 3D search space. Recently, [13] proposes a 2D-
+driven 3D object detection method that is similar to ours
+in spirit. However, they use hand-crafted features (based
+on histogram of point coordinates) with simple fully con-
+nected networks to regress 3D box location and pose, which
+is sub-optimal in both speed and performance. In contrast,
+we propose a more ﬂexible and effective solution with deep
+3D feature learning (PointNets).
+Deep Learning on Point Clouds Most existing works
+convert point clouds to images or volumetric forms before
+feature learning.
+[33, 18, 21] voxelize point clouds into
+volumetric grids and generalize image CNNs to 3D CNNs.
+[16, 25, 32, 7] design more efﬁcient 3D CNN or neural net-
+work architectures that exploit sparsity in point cloud. How-
+ever, these CNN based methods still require quantitization
+of point clouds with certain voxel resolution. Recently, a
+few works [20, 22] propose a novel type of network archi-
+tectures (PointNets) that directly consumes raw point clouds
+without converting them to other formats. While PointNets
+have been applied to single object classiﬁcation and seman-
+tic segmentation, our work explores how to extend the ar-
+chitecture for the purpose of 3D object detection.
+3. Problem Deﬁnition
+Given RGB-D data as input, our goal is to classify and
+localize objects in 3D space. The depth data, obtained from
+LiDAR or indoor depth sensors, is represented as a point
+cloud in RGB camera coordinates. The projection matrix
+is also known so that we can get a 3D frustum from a 2D
+image region. Each object is represented by a class (one
+among k predeﬁned classes) and an amodal 3D bounding
+box. The amodal box bounds the complete object even if
+part of the object is occluded or truncated. The 3D box is
+2d region
+proposal
+one-hot class vector
+point cloud
+in frustum
+(n points)
+CNN
+segmented
+object points
+3D Instance
+Segmentation
+PointNet
+center residual
+translation
+Amodal
+3D Box
+Estimation
+PointNet
+Frustum Proposal
+3D Instance Segmentation
+Amodal 3D Box Estimation
+Figure 2. Frustum PointNets for 3D object detection. We ﬁrst leverage a 2D CNN object detector to propose 2D regions and classify
+their content. 2D regions are then lifted to 3D and thus become frustum proposals. Given a point cloud in a frustum (n × c with n points
+and c channels of XYZ, intensity etc. for each point), the object instance is segmented by binary classiﬁcation of each point. Based on the
+segmented object point cloud (m× c), a light-weight regression PointNet (T-Net) tries to align points by translation such that their centroid
+is close to amodal box center. At last the box estimation net estimates the amodal 3D bounding box for the object. More illustrations on
+coordinate systems involved and network input, output are in Fig. 4 and Fig. 5.
+parameterized by its size h, w, l, center cx, cy, cz, and ori-
+entation θ, φ, ψ relative to a predeﬁned canonical pose for
+each category. In our implementation, we only consider the
+heading angle θ around the up-axis for orientation.
+4. 3D Detection with Frustum PointNets
+As shown in Fig. 2, our system for 3D object detection
+consists of three modules: frustum proposal, 3D instance
+segmentation, and 3D amodal bounding box estimation. We
+will introduce each module in the following subsections.
+We will focus on the pipeline and functionality of each mod-
+ule, and refer readers to supplementary for speciﬁc architec-
+tures of the deep networks involved.
+The resolution of data produced by most 3D sensors, es-
+pecially real-time depth sensors, is still lower than RGB
+images from commodity cameras. Therefore, we leverage
+mature 2D object detector to propose 2D object regions in
+RGB images as well as to classify objects.
+With a known camera projection matrix, a 2D bounding
+box can be lifted to a frustum (with near and far planes spec-
+iﬁed by depth sensor range) that deﬁnes a 3D search space
+for the object. We then collect all points within the frustum
+to form a frustum point cloud. As shown in Fig 4 (a), frus-
+tums may orient towards many different directions, which
+result in large variation in the placement of point clouds.
+We therefore normalize the frustums by rotating them to-
+ward a center view such that the center axis of the frustum is
+orthogonal to the image plane. This normalization helps im-
+prove the rotation-invariance of the algorithm. We call this
+entire procedure for extracting frustum point clouds from
+RGB-D data frustum proposal generation.
+While our 3D detection framework is agnostic to the ex-
+act method for 2D region proposal, we adopt a FPN [17]
+based model. We pre-train the model weights on ImageNet
+classiﬁcation and COCO object detection datasets and fur-
+ther ﬁne-tune it on a KITTI 2D object detection dataset to
+classify and predict amodal 2D boxes. More details of the
+2D detector training are provided in the supplementary.
+Given a 2D image region (and its corresponding 3D frus-
+tum), several methods might be used to obtain 3D loca-
+tion of the object: One straightforward solution is to di-
+rectly regress 3D object locations (e.g., by 3D bounding
+box) from a depth map using 2D CNNs. However, this
+problem is not easy as occluding objects and background
+clutter is common in natural scenes (as in Fig. 3), which
+may severely distract the 3D localization task. Because ob-
+jects are naturally separated in physical space, segmentation
+in 3D point cloud is much more natural and easier than that
+in images where pixels from distant objects can be near-by
+to each other. Having observed this fact, we propose to seg-
+Background
+Clutter
+Object of Interest
+Foreground
+Occluder
+camera
+Figure 3. Challenges for 3D detection in frustum point cloud.
+Left: RGB image with an image region proposal for a person.
+Right: bird’s eye view of the LiDAR points in the extruded frus-
+tum from 2D box, where we see a wide spread of points with both
+foreground occluder (bikes) and background clutter (building).
+frustum
+rotation
+mask point
+centroid
+(a) camera
+coordinate
+(b) frustum
+coordinate
+coordinate
+Figure 4. Coordinate systems for point cloud. Artiﬁcial points
+(black dots) are shown to illustrate (a) default camera coordi-
+nate; (b) frustum coordinate after rotating frustums to center view
+(Sec. 4.1); (c) mask coordinate with object points’ centroid at ori-
+gin (Sec. 4.2); (d) object coordinate predicted by T-Net (Sec. 4.3).
+ment instances in 3D point cloud instead of in 2D image or
+depth map. Similar to Mask-RCNN [11], which achieves
+instance segmentation by binary classiﬁcation of pixels in
+image regions, we realize 3D instance segmentation using a
+PointNet-based network on point clouds in frustums.
+Based on 3D instance segmentation, we are able to
+achieve residual based 3D localization. That is, rather than
+regressing the absolute 3D location of the object whose off-
+set from the sensor may vary in large ranges (e.g. from 5m
+to beyond 50m in KITTI data), we predict the 3D bounding
+box center in a local coordinate system – 3D mask coordi-
+nates as shown in Fig. 4 (c).
+3D Instance Segmentation PointNet. The network takes
+a point cloud in frustum and predicts a probability score for
+each point that indicates how likely the point belongs to the
+object of interest. Note that each frustum contains exactly
+one object of interest. Here those “other” points could be
+points of non-relevant areas (such as ground, vegetation) or
+other instances that occlude or are behind the object of in-
+terest. Similar to the case in 2D instance segmentation, de-
+pending on the position of the frustum, object points in one
+frustum may become cluttered or occlude points in another.
+Therefore, our segmentation PointNet is learning the occlu-
+sion and clutter patterns as well as recognizing the geometry
+for the object of a certain category.
+In a multi-class detection case, we also leverage the se-
+mantics from a 2D detector for better instance segmenta-
+tion. For example, if we know the object of interest is
+a pedestrian, then the segmentation network can use this
+prior to ﬁnd geometries that look like a person. Speciﬁ-
+cally, in our architecture we encode the semantic category
+as a one-hot class vector (k dimensional for the pre-deﬁned
+k categories) and concatenate the one-hot vector to the in-
+termediate point cloud features. More details of the speciﬁc
+architectures are described in the supplementary.
+3D Instance Segmentation PointNet
+Set
+Abstraction
+Layers
+Point
+Feature
+Propagation
+Layers
+frustum point cloud
+(frustum coordinate)
+object of interest
+probability
+Set
+Abstraction
+Layers
+object point cloud
+(mask coordinate)
+center residual
+(mask coordinate)
+Amodal 3D Box Estimation PointNet
+Set
+Abstraction
+FCs
+Layers
+object point cloud
+(object coordinate)
+box parameters
+(object coordinate)
+Figure 5. Basic architectures and IO for PointNets. Architecture
+is illustrated for PointNet++ [22] (v2) models with set abstraction
+layers and feature propagation layers (for segmentation). Coordi-
+nate systems involved are visualized in Fig. 4.
+Having obtained these segmented object points, we further
+normalize its coordinates to boost the translational invari-
+ance of the algorithm, following the same rationale as in
+the frustum proposal step. In our implementation, we trans-
+form the point cloud into a local coordinate by subtracting
+XYZ values by its centroid. This is illustrated in Fig. 4 (c).
+Note that we intentionally do not scale the point cloud, be-
+cause the bounding sphere size of a partial point cloud can
+be greatly affected by viewpoints and the real size of the
+point cloud helps the box size estimation.
+In our experiments, we ﬁnd that coordinate transforma-
+tions such as the one above and the previous frustum rota-
+tion are critical for 3D detection result as shown in Tab. 8.
+Given the segmented object points (in 3D mask coordi-
+nate), this module estimates the object’s amodal oriented
+3D bounding box by using a box regression PointNet to-
+gether with a preprocessing transformer network.
+Learning-based 3D Alignment by T-Net Even though
+we have aligned segmented object points according to their
+centroid position, we ﬁnd that the origin of the mask coordi-
+nate frame (Fig. 4 (c)) may still be quite far from the amodal
+box center. We therefore propose to use a light-weight re-
+gression PointNet (T-Net) to estimate the true center of the
+complete object and then transform the coordinate such that
+the predicted center becomes the origin (Fig. 4 (d)).
+The architecture and training of our T-Net is similar to
+the T-Net in [20], which can be thought of as a special type
+of spatial transformer network (STN) [12]. However, differ-
+ent from the original STN that has no direct supervision on
+transformation, we explicitly supervise our translation net-
+work to predict center residuals from the mask coordinate
+origin to real object center.
+After 3D instance segmentation, points that are classiﬁed
+as the object of interest are extracted (“masking” in Fig. 2).
+Amodal 3D Box Estimation PointNet The box estima-
+tion network predicts amodal bounding boxes (for entire
+object even if part of it is unseen) for objects given an ob-
+ject point cloud in 3D object coordinate (Fig. 4 (d)). The
+network architecture is similar to that for object classiﬁca-
+tion [20, 22], however the output is no longer object class
+scores but parameters for a 3D bounding box.
+As stated in Sec. 3, we parameterize a 3D bounding box
+by its center (cx, cy, cz), size (h, w, l) and heading angle
+θ (along up-axis). We take a “residual” approach for box
+center estimation. The center residual predicted by the box
+estimation network is combined with the previous center
+residual from the T-Net and the masked points’ centroid to
+recover an absolute center (Eq. 1). For box size and heading
+angle, we follow previous works [23, 19] and use a hybrid
+of classiﬁcation and regression formulations. Speciﬁcally
+we pre-deﬁne N S size templates and N H equally split an-
+gle bins. Our model will both classify size/heading (N S
+scores for size, N H scores for heading) to those pre-deﬁned
+categories as well as predict residual numbers for each cate-
+gory (3 × N S residual dimensions for height, width, length,
+N H residual angles for heading). In the end the net outputs
+3 + 4 × N S + 2 × N H numbers in total.
+We simultaneously optimize the three nets involved (3D
+instance segmentation PointNet, T-Net and amodal box es-
+timation PointNet) with multi-task losses (as in Eq. 2).
+Lc1−reg is for T-Net and Lc2−reg is for center regression
+of box estimation net. Lh−cls and Lh−reg are losses for
+heading angle prediction while Ls−cls and Ls−reg are for
+box size. Softmax is used for all classiﬁcation tasks and
+smooth-l1 (huber) loss is used for all regression cases.
+Corner Loss for Joint Optimization of Box Parameters
+While our 3D bounding box parameterization is compact
+and complete, learning is not optimized for ﬁnal 3D box ac-
+curacy – center, size and heading have separate loss terms.
+Imagine cases where center and size are accurately pre-
+dicted but heading angle is off – the 3D IoU with ground
+truth box will then be dominated by the angle error. Ide-
+ally all three terms (center,size,heading) should be jointly
+optimized for best 3D box estimation (under IoU metric).
+To resolve this problem we propose a novel regularization
+loss, the corner loss:
+In essence, the corner loss is the sum of the distances
+between the eight corners of a predicted box and a ground
+truth box. Since corner positions are jointly determined by
+center, size and heading, the corner loss is able to regularize
+the multi-task training for those parameters.
+To compute the corner loss, we ﬁrstly construct N S ×
+N H “anchor” boxes from all size templates and heading
+angle bins. The anchor boxes are then translated to the es-
+timated box center. We denote the anchor box corners as
+P ij
+k , where i, j, k are indices for the size class, heading
+class, and (predeﬁned) corner order, respectively. To avoid
+large penalty from ﬂipped heading estimation, we further
+k ) from the ﬂipped ground
+compute distances to corners (P ∗∗
+truth box and use the minimum of the original and ﬂipped
+cases. δij , which is one for the ground truth size/heading
+class and zero else wise, is a two-dimensional mask used to
+select the distance term we care about.
+5. Experiments
+Experiments are divided into three parts1. First we com-
+pare with state-of-the-art methods for 3D object detection
+on KITTI [8] and SUN-RGBD [27] (Sec 5.1). Second,
+we provide in-depth analysis to validate our design choices
+(Sec 5.2). Last, we show qualitative results and discuss the
+strengths and limitations of our methods (Sec 5.3).
+We evaluate our 3D object detector on KITTI [9] and
+SUN-RGBD [27] benchmarks for 3D object detection. On
+both tasks we have achieved signiﬁcantly better results
+compared with state-of-the-art methods.
+KITTI Tab. 1 shows the performance of our 3D detector
+on the KITTI test set. We outperform previous state-of-the-
+art methods by a large margin. While MV3D [5] uses multi-
+view feature aggregation and sophisticated multi-sensor fu-
+sion strategy, our method based on the PointNet [20] (v1)
+and PointNet++ [22] (v2) backbone is much cleaner in de-
+sign. While out of the scope for this work, we expect that
+sensor fusion (esp. aggregation of image feature for 3D de-
+tection) could further improve our results.
+We also show our method’s performance on 3D object
+localization (bird’s eye view) in Tab. 2. In the 3D localiza-
+tion task bounding boxes are projected to bird’s eye view
+plane and IoU is evaluated on oriented 2D boxes. Again,
+our method signiﬁcantly outperforms previous works which
+include DoBEM [35] and MV3D [5] that use CNNs on pro-
+jected LiDAR images, as well as 3D FCN [14] that uses 3D
+CNNs on voxelized point cloud.
+1Details on network architectures, training parameters as well as more
+experiments are included in the supplementary material.
+Method
+Cars
+Pedestrians
+Easy Moderate
+Hard
+Cyclists
+Easy Moderate
+Hard
+Table 1. 3D object detection 3D AP on KITTI test set. DoBEM [35] and MV3D [5] (previous state of the art) are based on 2D CNNs with
+bird’s eye view LiDAR image. Our method, without sensor fusion or multi-view aggregation, outperforms those methods by large margins
+on all categories and data subsets. 3D bounding box IoU threshold is 70% for cars and 50% for pedestrians and cyclists.
+Method
+Cars
+Pedestrians
+Easy Moderate
+Hard
+Cyclists
+Easy Moderate
+Hard
+Table 2. 3D object localization AP (bird’s eye view) on KITTI test set. 3D FCN [14] uses 3D CNNs on voxelized point cloud and is far
+from real-time. MV3D [5] is the previous state of the art. Our method signiﬁcantly outperforms those methods on all categories and data
+subsets. Bird’s eye view 2D bounding box IoU threshold is 70% for cars and 50% for pedestrians and cyclists.
+Table 3. 3D object detection AP on KITTI val set (cars only).
+Table 4. 3D object localization AP on KITTI val set (cars only).
+The output of our network is visualized in Fig. 6 where
+we observe accurate 3D instance segmentation and box pre-
+diction even under very challenging cases. We defer more
+discussions on success and failure case patterns to Sec. 5.3.
+We also report performance on KITTI val set (the same split
+as in [5]) in Tab. 3 and Tab. 4 (for cars) to support compari-
+son with more published works, and in Tab. 5 (for pedestri-
+ans and cyclists) for reference.
+SUN-RGBD Most previous 3D detection works special-
+ize either on outdoor LiDAR scans where objects are well
+separated in space and the point cloud is sparse (so that
+it’s feasible for bird’s eye projection), or on indoor depth
+maps that are regular images with dense pixel values such
+Benchmark
+Pedestrian (3D Detection)
+Pedestrian (Bird’s Eye View)
+Cyclist (3D Detection)
+Cyclist (Bird’s Eye View)
+Table 5. Performance on KITTI val set for pedestrians and cyclists.
+Model evaluated is Ours (v2).
+that image CNNs can be easily applied. However, methods
+designed for bird’s eye view may be incapable for indoor
+rooms where multiple objects often exist together in verti-
+cal space. On the other hand, indoor focused methods could
+ﬁnd it hard to apply to sparse and large-scale point cloud
+from LiDAR scans.
+In contrast, our frustum-based PointNet is a generic
+framework for both outdoor and indoor 3D object detec-
+tion. By applying the same pipeline we used for KITTI data
+set, we’ve achieved state-of-the-art performance on SUN-
+RGBD benchmark (Tab. 6) with signiﬁcantly higher mAP
+as well as much faster (10x-1000x) inference speed.
+5.2. Architecture Design Analysis
+In this section we provide analysis and ablation experi-
+ments to validate our design choices.
+Experiment setup. Unless otherwise noted, all experi-
+ments in this section are based on our v1 model on KITTI
+data using train/val split as in [5]. To decouple the inﬂuence
+of 2D detectors, we use ground truth 2D boxes for region
+proposals and use 3D box estimation accuracy (IoU thresh-
+old 0.7) as the evaluation metric. We will only focus on the
+car category which has the most training examples.
+Figure 6. Visualizations of Frustum PointNet results on KITTI val set (best viewed in color with zoom in). These results are based
+on PointNet++ models [22], running at 5 fps and achieving test set 3D AP of 70.39, 44.89 and 56.77 for car, pedestrian and cyclist,
+respectively. 3D instance masks on point cloud are shown in color. True positive detection boxes are in green, while false positive boxes
+are in red and groundtruth boxes in blue are shown for false positive and false negative cases. Digit and letter beside each box denote
+instance id and semantic class, with “v” for cars, “p” for pedestrian and “c” for cyclist. See Sec. 5.3 for more discussion on the results.
+bathtub
+bookshelf
+dresser
+nightstand
+Table 6. 3D object detection AP on SUN-RGBD val set. Evaluation metric is average precision with 3D IoU threshold 0.25 as proposed
+by [27]. Note that both COG [24] and 2D-driven [13] use room layout context to boost performance while ours and DSS [29] not.
+Compared with previous state-of-the-arts our method is 6.4% to 11.9% better in mAP as well as one to three orders of magnitude faster.
+Comparing with alternative approaches for 3D detec-
+tion.
+In this part we evaluate a few CNN-based baseline
+approaches as well as ablated versions and variants of our
+pipelines using 2D masks.
+In the ﬁrst row of Tab. 7, we
+show 3D box estimation results from two CNN-based net-
+works. The baseline methods trained VGG [26] models
+on ground truth boxes of RGB-D images and adopt the
+same box parameter and loss functions as our main method.
+While the model in the ﬁrst row directly estimates box lo-
+cation and parameters from vanilla RGB-D image patch,
+the other one (second row) uses a FCN trained from the
+COCO dataset for 2D mask estimation (as that in Mask-
+RCNN [11]) and only uses features from the masked region
+for prediction. The depth values are also translated by sub-
+tracting the median depth within the 2D mask. However,
+both CNN baselines get far worse results compared to our
+main method.
+To understand why CNN baselines underperform, we vi-
+sualize a typical 2D mask prediction in Fig. 7. While the
+estimated 2D mask appears in high quality on an RGB im-
+age, there are still lots of clutter and foreground points in
+the 2D mask. In comparison, our 3D instance segmenta-
+tion gets much cleaner result, which greatly eases the next
+module in ﬁner localization and bounding box regression.
+In the third row of Tab. 7, we experiment with an ablated
+version of frustum PointNet that has no 3D instance seg-
+mentation module. Not surprisingly, the model gets much
+worse results than our main method, which indicates the
+critical effect of our 3D instance segmentation module. In
+the fourth row, instead of 3D segmentation we use point
+clouds from 2D masked depth maps (Fig. 7) for 3D box es-
+timation. However, since a 2D mask is not able to cleanly
+segment the 3D object, the performance is more than 12%
+worse than that with the 3D segmentation (our main method
+in the ﬁfth row). On the other hand, a combined usage of 2D
+and 3D masks – applying 3D segmentation on point cloud
+network arch.
+mask
+depth representation
+accuracy
+RGB
+points from masked
+(baseline)
+depth
+points from our 3d 
+instance segmentation
+ConvNet
+ConvNet
+PointNet
+PointNet
+PointNet
+PointNet
+image
+image
+point cloud
+point cloud
+point cloud
+point cloud
+Table 7. Comparing 2D and 3D approaches. 2D mask is from
+FCN on RGB image patch. 3D mask is from PointNet on frustum
+point cloud. 2D+3D mask is 3D mask generated by PointNet on
+point cloud poped up from 2D masked depth map.
+frustum rot. mask centralize
+accuracy
+Table 8. Effects of point cloud normalization. Metric is 3D box
+estimation accuracy with IoU=0.7.
+loss type
+regularization
+accuracy
+regression only
+cls-reg
+cls-reg (normalized)
+cls-reg (normalized)
+corner loss
+Table 9. Effects of 3D box loss formulations. Metric is 3D box
+estimation accuracy with IoU=0.7.
+from 2D masked depth map – also shows slightly worse re-
+sults than our main method probably due to the accumulated
+error from inaccurate 2D mask predictions.
+Effects of point cloud normalization. As shown in
+Fig. 4, our frustum PointNet takes a few key coordinate
+transformations to canonicalize the point cloud for more ef-
+fective learning. Tab. 8 shows how each normalization step
+helps for 3D detection. We see that both frustum rotation
+(such that frustum points have more similar XYZ distribu-
+tions) and mask centroid subtraction (such that object points
+have smaller and more canonical XYZ) are critical. In addi-
+tion, extra alignment of object point cloud to object center
+by T-Net also contributes signiﬁcantly to the performance.
+Effects of regression loss formulation and corner loss.
+In Tab. 9 we compare different loss options and show that a
+combination of “cls-reg” loss (the classiﬁcation and residual
+regression approach for heading and size regression) and a
+regularizing corner loss achieves the best result.
+The naive baseline using regression loss only (ﬁrst row)
+achieves unsatisfactory result because the regression target
+is large in range (object size from 0.2m to 5m). In com-
+parison, the cls-reg loss and a normalized version (residual
+normalized by heading bin size or template shape size) of it
+achieve much better performance. At last row we show that
+a regularizing corner loss further helps optimization.
+Figure 7. Comparisons between 2D and 3D masks. We show a
+typical 2D region proposal from KITTI val set with both 2D (on
+RGB image) and 3D (on frustum point cloud) instance segmenta-
+tion results. The red numbers denote depth ranges of points.
+5.3. Qualitative Results and Discussion
+In Fig. 6 we visualize representative outputs of our frus-
+tum PointNet model. We see that for simple cases of non-
+occluded objects in reasonable distance (so we get enough
+number of points), our model outputs remarkably accurate
+3D instance segmentation mask and 3D bounding boxes.
+Second, we are surprised to ﬁnd that our model can even
+predict correctly posed amodal 3D box from partial data
+(e.g. parallel parked cars) with few points. Even humans
+ﬁnd it very difﬁcult to annotate such results with point cloud
+data only. Third, in some cases that seem very challenging
+in images with lots of nearby or even overlapping 2D boxes,
+when converted to 3D space, the localization becomes much
+easier (e.g. P11 in second row third column).
+On the other hand, we do observe several failure pat-
+terns, which indicate possible directions for future efforts.
+The ﬁrst common mistake is due to inaccurate pose and
+size estimation in a sparse point cloud (sometimes less than
+5 points). We think image features could greatly help esp.
+since we have access to high resolution image patch even
+for far-away objects. The second type of challenge is when
+there are multiple instances from the same category in a
+frustum (like two persons standing by). Since our current
+pipeline assumes a single object of interest in each frus-
+tum, it may get confused when multiple instances appear
+and thus outputs mixed segmentation results. This prob-
+lem could potentially be mitigated if we are able to propose
+multiple 3D bounding boxes within each frustum. Thirdly,
+sometimes our 2D detector misses objects due to dark light-
+ing or strong occlusion. Since our frustum proposals are
+based on region proposal, no 3D object will be detected
+given no 2D detection. However, our 3D instance segmen-
+tation and amodal 3D box estimation PointNets are not re-
+stricted to RGB view proposals. As shown in the supple-
+mentary, the same framework can also be extended to 3D
+regions proposed in bird’s eye view.
+References
+[1] Kitti 3d object detection benchmark leader board.
+[2] Kitti bird’s eye view object detection benchmark leader
+http://www.cvlibs.net/datasets/
+[6] Z. Deng and L. J. Latecki. Amodal detection of 3d objects:
+Inferring 3d bounding boxes from 2d ones in rgb-depth im-
+ages. In Conference on Computer Vision and Pattern Recog-
+nition (CVPR), volume 2, 2017. 2
+the kitti vision benchmark suite.
+[18] D. Maturana and S. Scherer. Voxnet: A 3d convolutional
+neural network for real-time object recognition. In IEEE/RSJ
+International Conference on Intelligent Robots and Systems,
+September 2015. 1, 2
+[24] Z. Ren and E. B. Sudderth. Three-dimensional object detec-
+tion and layout prediction using clouds of oriented gradients.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition, pages 1525–1533, 2016. 2, 7
+[35] S.-L. Yu, T. Westfechtel, R. Hamada, K. Ohno, and S. Ta-
+dokoro. Vehicle detection and localization on birds eye view
+elevation images using convolutional neural network. 2017
+IEEE International Symposium on Safety, Security and Res-
+cue Robotics (SSRR), 2017. 5, 6

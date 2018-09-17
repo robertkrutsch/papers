@@ -1,0 +1,656 @@
+InterpoNet, A brain inspired neural network for optical ﬂow dense interpolation
+1The Gonda Multidisciplinary Brain Research Center, Bar Ilan University, Israel
+2The Blavatnik School of Computer Science, Tel Aviv University, Israel
+3Facebook AI Research
+shayzweig@gmail.com, wolf@cs.tau.ac.il
+Abstract
+Sparse-to-dense interpolation for optical ﬂow is a fun-
+damental phase in the pipeline of most of the leading op-
+tical ﬂow estimation algorithms. The current state-of-the-
+art method for interpolation, EpicFlow, is a local average
+method based on an edge aware geodesic distance. We pro-
+pose a new data-driven sparse-to-dense interpolation algo-
+rithm based on a fully convolutional network. We draw in-
+spiration from the ﬁlling-in process in the visual cortex and
+introduce lateral dependencies between neurons and multi-
+layer supervision into our learning process. We also show
+the importance of the image contour to the learning pro-
+cess. Our method is robust and outperforms EpicFlow on
+competitive optical ﬂow benchmarks with several underly-
+ing matching algorithms. This leads to state-of-the-art per-
+formance on the Sintel and KITTI 2012 benchmarks.
+1. Introduction
+The leading optical ﬂow algorithms to date, with few ex-
+ceptions, are not end-to-end deep learning. While some of
+them employ deep matching scores for estimating the best
+match in image I’ for every location in image I, almost all
+methods employ multiple steps that do not involve learning.
+With the current afﬁnity toward end-to-end deep learning
+solutions, the existence of large training datasets, and many
+concurrent contributions in the ﬁeld of deep optical ﬂow and
+related ﬁelds, one may wonder why this is the case.
+Out of the four steps of modern optical ﬂow pipelines:
+matching, ﬁltering, interpolation and variational reﬁnement,
+we focus on the third. In this step, a sparse list of matches
+is transformed into dense optical ﬂow maps.
+It is one of
+the most crucial steps and without the availability of the
+EpicFlow method [33], which currently dominates this step,
+a large number of sparse matching techniques would not
+have been competitive enough to gain attention.
+EpicFlow is an extremely effective method that is based
+on solid computer vision foundations. However, despite us-
+ing sophisticated heuristics for improved runtime, it is still
+rather slow and as a non-learning method, it is bounded in
+the performance it can deliver. Replacing EpicFlow by a
+deep learning method is harder than it initially seems. Feed-
+forward neural networks excel in analyzing image informa-
+tion, but neuroscience tells us that in biological networks,
+lateral and top-down feedback loops are involved in solv-
+ing cases where the information is missing or corrupted at
+random locations.
+Artiﬁcial feedback networks are slower than feedforward
+networks, harder to train, and have not proven themselves
+in the practice of computer vision. We note that feedback
+networks with a predeﬁned number of feedback iterations
+can be unrolled into deep feedforward networks with one
+major caveat – while in most feedforward networks, the su-
+pervision ﬂows from the top down, in feedback networks,
+the supervision occurs at each iteration. To resolve this, we
+equip our network with supervision at every layer.
+Inspired by neuroscience, we also suggest a loss involv-
+ing lateral dependencies. Here, too, we replace the process
+of lateral feedback during run-time with additional supervi-
+sion during training. In this way, the feedforward network
+learns how to mimic a network with lateral feedback loops
+by utilizing the training labels.
+Taken together, our contributions are: (a) We propose,
+for the ﬁrst time, to the best of our knowledge, a neural net-
+work based sparse-to-dense interpolation for optical ﬂow.
+Our network performs better than the current state of the
+art, it is robust and can be adjusted to different matching al-
+gorithms and serve as the new default interpolation method
+in optical ﬂow pipelines. (b) We introduce a new lateral de-
+pendency loss, embedding the correlations between neigh-
+bors into the learning process. (c) We deﬁne a novel archi-
+tecture involving detour networks in each layer of the net-
+work. The new architecture provides a substantial increase
+in performance. (d) We solidify the importance of motion
+boundaries in learning dense interpolation for optical ﬂow.
+2. Related Work
+Interpolation In The Visual Cortex. The visual system
+often receives a noisy and missing input. However, it is
+known to robustly denoise and ﬁll-in the gaps in the in-
+put image. This phenomenon termed - perceptual ﬁlling-
+in [20], was reported to occur for occlusions [17], illusory
+contours and surfaces [29], in the ”blind spot”[31] and in
+visual scotomas [32]. Different features in the visual stimu-
+lus are ﬁlled in, including brightness[28], color[10], texture
+and motion[32]. The neurophysiological mechanism under-
+lying perceptual ﬁlling-in is still under debate. However,
+many have found evidence of the existence of a neuronal
+ﬁlling-in mechanism [28, 30, 39, 15, 43]. In this mecha-
+nism, neurons that are retinotopically mapped to visible or
+salient parts of an image (such as the edges) are activated
+ﬁrst. This initial activation is followed by a later spread
+to neurons that are mapped to the missing parts, result-
+ing in a complete representation of the image [7, 42, 21].
+This activation spread is mediated by both lateral connec-
+tions within areas in the cortex as well as top down con-
+nections [15, 30, 43]. It was also shown to be very sensi-
+tive to edges in the image, usually originating in edges and
+stops when encountered with edges [38, 43]. Finally, neu-
+ronal ﬁlling-in was found to take place in multiple areas in
+the visual cortex hierarchy, from V1 and V2 [15, 34] via
+V4 [30, 35] and in higher areas [25, 24].
+We designed our interpolation network to incorporate
+three concepts inspired by neuronal ﬁlling-in:
+the inter-
+actions between neighbor neurons, multi-layer supervision
+and the importance of edges. Neighbor neurons’ interac-
+tions can be modeled by recurrent connections within a
+layer, such as the model suggested by Liang and Hu [23].
+While the anatomic resemblance of such models to the cor-
+tex is appealing, in reality, they are unfolded to a feedfor-
+ward network with shared weights. We, therefore, preferred
+to utilize the loss to force the interaction between neigh-
+bor neurons while using simpler, strictly feedforward net-
+works, which were shown to perform extremely well for
+vision tasks while excelling in training time and simplicity.
+Interpolation For Optical Flow. Most current optical
+ﬂow approaches are based on a four phase pipeline. The
+ﬁrst phase matches pixels between the images in the image
+pair, based on nearest neighbor ﬁelds or feature matching
+techniques (hand engineered or learned) [4, 14, 27]. The
+second phase ﬁlters matches with low conﬁdence, produc-
+ing a noisy and missing ﬂow map[2]. The missing pixels
+usually undergo large displacements, a signiﬁcant shift in
+appearance or are occluded in one of the images. There-
+fore, a third phase is needed to interpolate the missing parts
+and reduce the noise. A fourth and ﬁnal phase applies re-
+ﬁnement to the interpolated dense map from Phase 3.
+The best and most used algorithm for optical ﬂow in-
+terpolation (the third phase) is currently EpicFlow [33].
+EpicFlow computes the ﬂow of each pixel using a weighted
+sum of the pixel’s local environment. Locality is deﬁned by
+a geodesic distance function based on the image edges that
+correspond to the motion boundaries. This edges aware ap-
+proach yields good interpolation results for occluded pixels
+and large displacement. EpicFlow excels in interpolation.
+However, it is less robust to noisy matches, especially in
+the vicinity of large missing regions, as displayed in their
+Figure 8. This sensitivity to noise is increased by the fact
+that the noise produced by each matching algorithm dis-
+plays slightly different patterns. To overcome these difﬁ-
+culties, a trained algorithm like ours that learns the noise
+patterns is more suitable. We suggest a new interpolation
+method based on a deep convolutional neural network. The
+method is applied in a feedforward manner and leads to an
+improvement in both accuracy and speed over the EpicFlow
+method.
+Finally, it is noteworthy that some of the new optical
+ﬂow methods do not rely on the aforementioned pipeline
+[36, 16]. One interesting example is presented by Dosovit-
+skiy et al. [9] in their FlowNet model. They present an end
+to end convolutional neural network for optical ﬂow that
+outputs a dense ﬂow map. While their method does not
+reach the state of the art performance, it runs in real-time
+and demonstrates the power of feedforward deep learning
+in optical ﬂow estimation.
+3. Network Architecture
+The optical ﬂow dense interpolation problem is deﬁned
+in the following way: given a sparse and noisy set of
+matches between pixels M = {(pm, p(cid:48)
+m)}, we want to ap-
+proximate the dense ﬂow ﬁeld F : I → I(cid:48) between a source
+image I and a target image I(cid:48). To solve this problem, we use
+a fully convolutional network with no pooling. The main
+branch of the network consists of ten layers, each applying
+a 7x7 convolution ﬁlter followed by an Elu [5] non-linearity
+(Fig. 1). We use zero-padding to maintain the same image
+dimensions at each layer of the network.
+3.1. Network Input
+The input to our algorithm is a set of sparse and noisy
+matches M. These matches can be produced by any third
+party matching algorithm.
+In our experiments, we used
+several of the leading matching algorithms: FlowFields
+(FF) [2], CPM-Flow (CPM) [14], DiscreteFlow (DF) [27],
+and ﬁnally DeepMatching (DM) [41]. From the matches,
+we produce a sparse ﬂow map of size h × w × 2 where h
+and w are the height and width of the image pair. Each pixel
+is initialized with the displacement to its match in the x and
+y axis. Missing pixels are ﬁlled with zeros. Apart from the
+sparse ﬂow map, we add two additional matrices as guiding
+inputs to the networks: A binary mask of the missing pixels,
+and the edges map (Fig. 1).
+We create a binary mask of all the missing pixels to indi-
+cate their position to the network (since zero can be a valid
+Figure 1: The architecture of InterpoNet.
+It was shown by others [19] to en-
+displacement value).
+hance performance in deep neural networks for inpainting.
+The last input to the network is an edges map of one of
+the images in the image pair for which the ﬂow is com-
+puted. The contours of an image were shown to be a
+key feature in image processing in the early visual cor-
+tex [11, 42, 43, 6, 30]. EpicFlow [33] already showed the
+beneﬁt of the image edges as motion boundaries for opti-
+cal ﬂow estimation. In our work, we show evidence that
+a learning system also beneﬁts from receiving the edges as
+input (see Fig. 4). We used an off-the-shelf edges detector
+- the ”structured edges detector” (SED) [8] - the same one
+used by EpicFlow.
+All of the inputs are stacked together and downsampled
+by 8 to form an h/8× w/8× 4 matrix. Rather than a simple
+stacking, we also considered different ways of introducing
+the edges map into the network. Among others, we have
+tried feeding the edges to all layers in the deep network,
+feeding the map to a different network and combining its
+output with the main branch in a deeper layer as well as
+constructing different networks to deal with pixels around
+the edges and far from the edges. However, we found that
+the simplest approach used here produced the best results.
+3.2. The lateral dependency loss
+To optimize the network results, we used the EPE (End
+Point Error) loss function, which is one of the standard error
+measures for optical ﬂow.
+It is deﬁned as the Euclidean
+distance between two ﬂow pixels:
+The loss for an image pair was the average EPE over pixels:
+Where ˆY is the network prediction, Y is the ground truth
+ﬂow map and n is the number of pixels in the ﬂow map.
+This standard loss by itself does not yield good enough
+results (see Sec. 4.2). We, therefore, resort to cortical neu-
+ronal ﬁlling-in processes in our search for better losses.
+Neuronal ﬁlling-in is characterized by spatial spread of
+activation. There is evidence that the activation spread is
+mediated by both lateral and top-down connections. To im-
+itate the lateral dependency between neighbors in the net-
+work, we deﬁne a new lateral dependency loss. This loss
+pushes the distance between neighboring pixels to be simi-
+lar to the distance in the ground truth ﬂow. It is deﬁned in
+the following way:
+The proposed loss term directly includes the local spatial
+dependencies within the training process, similar to what
+happens in the early stages of the visual cortex [1, 15].
+3.3. Multi-layer loss using detour networks
+Top-down connections are tricky to implement in artiﬁ-
+cial neural networks. We, therefore, use the loss function,
+which is the main feedback to the network, to imitate top-
+down connections. Also inspired by the evidence that neu-
+ronal ﬁlling-in takes place in many layers in the visual sys-
+tem hierarchy [30, 25, 24], we used detour networks con-
+necting each and every layer directly to the loss function.
+During training, the loss function served as top down in-
+formation pushing each layer to perform interpolation in the
+best possible manner. The detour networks were kept sim-
+ple: aside from the main branch of the network, each of the
+layer’s activations was transformed into a two channels ﬂow
+map using a single convolution layer with linear activations
+with all the tools we presented as well as EpicFlow, per-
+formed different levels of a simpler interpolation.
+3.4. Post-processing
+Our fully convolution with zero padding and no pool-
+ing network produces an output in the same size of the in-
+put. We, therefore, upsample the output by a factor of 8
+using bi-linear interpolation. Like others before us [9], we
+found that using the variational energy minimization post-
+processing used in EpicFlow [33] slightly improved our ﬁ-
+nal prediction (0.25px. gain in mean EPE). We employ the
+same parameters as EpicFlow, as appears in their Section 4.
+4. Experiments
+We report the results of our network on the Sintel [3],
+KITTI 2012 [12] and KITTI 2015 [26] datasets. We also
+show the effectiveness of different features in the network:
+the lateral dependency loss, the multi-layer loss and the
+edges input.
+4.1. Training details
+Preprocessing. As described in Section 3, the network re-
+ceives a four channel input composed of two sparse ﬂow
+channels given as the output of a matching algorithm, a bi-
+nary mask and the edges map. To reduce training time, we
+downsample all the inputs by 8 (some matching algorithms
+output a downsampled version by default [41, 27, 14]). To
+reduce the number of missing pixels in training time, we
+apply bi-directional averaging (see supplementary).
+We apply ﬂipping as our only data augmentation method.
+Other transformations such as scaling, shearing, rotating
+and zooming did not improve the network performance,
+probably due to the interpolations that accompany them and
+drastically change the ﬂow map.
+Datasets. We evaluated our network on the three main op-
+tical ﬂow benchmarks: MPI Sintel [3] is a collection of sev-
+eral scenes taken from a graphical animation movie. Each
+scene consists of several consecutive frames for which a
+dense ground truth ﬂow map is given (a total of 1041 train-
+ing image pairs). The scenes are diverse and include battle
+scenes with challenging large displacements. KITTI 2012
+[12] is composed of real world images taken from a mov-
+ing vehicle (194 training images). And KITTI 2015, [26] is
+similar to the KITTI 2012 dataset but with more challenging
+scenes (200 training images).
+Since convolutional networks demand a large set of
+training data, we use the same approach used by Dosovit-
+skiy et al. [9]. For initial pre-training, we use the Flying
+Chairs dataset that they introduced. This is a relatively large
+synthetic dataset (22,875 image pairs) composed of chair
+objects ﬂying over different backgrounds. We train on all
+the dataset and use a sub-sample of the Sintel dataset as val-
+idation. Due to time constraints, we could not apply all of
+Figure 2: The network prediction for the Kanizsa illusion.
+(no nonlinearity, see Fig. 1). Each of the ﬂow maps pro-
+duced by the detour networks was compared to the ground
+truth ﬂow map using the EPE and LD losses. The ﬁnal net-
+work loss was the weighted sum of all the losses:
+epe and Ll
+Where wl, Ll
+ld are the weight, EPE loss and LD
+loss of layer l. We found that weights of 0.5 for each of the
+middle layers and 1 for the last yielded the best results. For
+inference, we use only the last detour layer output - the one
+connected to the last layer of the network’s main branch.
+Our approach has some similarities to the one used in the
+inception model introduced by Szegedi et al. [37], which
+employs auxiliary networks with independent losses dur-
+ing training. They found it to provide regularization and
+combat the vanishing gradients problem. However, in their
+network, the ﬁrst auxiliary network was added in the tenth
+layer. We found that adding a detour network for each layer
+gave the best results. Szegedi et al.’s auxiliary networks
+were also built of several layers and performed some com-
+putation within them. We found that the simplest linear con-
+volution was the best architecture. Additional layers or non-
+linearities did not improve the performance of the network.
+Taken together, our network was equipped with mecha-
+nisms with which it could imitate interpolation in the visual
+cortex.
+Interestingly, not only did it learn to perform in-
+terpolation of regular motion, it also performed strikingly
+similar to the visual cortex, when presented with an illu-
+sion. Figure 2 shows the interpolation applied by different
+variants of our network and EpicFlow on a given Kanizsa
+like motion pattern. The network never saw such a pattern
+in training time. When masking parts of the image, our net-
+work interpolates the motion pattern from the background
+and the interior. The propagation from the background stops
+in the borders of the imaginary square contour (marked by a
+dashed line), much like our visual perception. Importantly,
+only the real edges, not those of the imaginary contour, were
+fed to the network. Other networks that were not equipped
+Table 1: Comparing
+losses for the Sintel ’ﬁ-
+nal’ pass validation set,
+trained on the output of
+FlowFields.
+the matching algorithms to the big ﬂying chairs dataset. We,
+therefore, used only FlowFields [2] for this initial training
+on Flying Chairs. Additional ﬁne tuning was applied using
+the training sets of speciﬁc benchmarks and for the speciﬁc
+matching algorithm (see supplementary). In all presented
+experiments to follow, we pre-train the networks on Flying
+Chairs and ﬁne tune on Sintel using the FlowFields match-
+ing algorithm - unless stated otherwise. All the analysis,
+results and visualizations are done without the variational
+post-processing, except for the benchmark results.
+Optimization. We use Adam [18] with standard parameters
+(β1 = 0.9, β2 = 0.999). A learning rate of 5× 10−5 for the
+pre-training and 5 × 10−6 for the ﬁne tuning is used.
+4.2. Comparison of loss variants
+To ensure the efﬁciency of the different losses and the
+new architecture we introduce, we trained several variants
+of our network - with only the EPE loss, with the EPE + LD
+loss and with the EPE + ML loss. As Table 1 shows, each
+of our introduced losses yields a performance boost. Fig-
+ure 3a shows the output of the different detour networks in
+different layers as well as the error maps for the two losses
+we used - EPE and LD loss, for an example image in our
+Sintel validation set. Notice how both the EPE and LD loss
+improves as the network deepens - this is consistent over all
+of the images in the validation set (Fig. 3c). At the ﬁrst lay-
+ers of the network, it seems that it is focused on performing
+a simple interpolation to mainly ﬁll the missing parts. This
+initial interpolation is less aware of the motion boundaries.
+As the network deepens, it mainly polishes the details and
+reduces noise according to the segmentation introduced by
+the edges (for example.
+the green patches in Fig. 3a left
+column). The prediction of a network trained without multi-
+layer loss is noisier (6th row in Fig. 3a, lower right corner).
+It seems that the added supervision in all the layers helps to
+extinguish errors in the interpolation and adjust it according
+to the motion boundaries.
+The LD loss is introduced to enforce a certain depen-
+dency between neighboring pixels. Much like in neuronal
+ﬁlling-in, lateral dependency plays a role in propagation,
+especially in terms of uncertainty. For example, in Figure
+3a, there is a big missing part in the center-left with some
+false matches (light green in the ﬂow map) to its right. The
+network can choose to either propagate the background or
+the false matches. To avoid the wrong local dependencies,
+the network with LD loss uses the background to ﬁll most
+(a) The progression of the prediction process throughout the dif-
+ferent layers in the network, as shown by the detour networks out-
+puts. Starting from the second row, the second and third columns
+are the EPE and LD loss maps respectively. The last three rows
+are the ﬁnal predictions of networks with different losses. They
+are presented after upsampling which contributes to the decrease
+in LDL. Missing pixels in the input are marked in black.
+(b) Comparison of the network performance with and without the
+LD loss. Left column is the ground truth, center and right columns
+are the predictions with and without LDL respectively.
+(c) Mean EPE over different
+pixel groups in the Sintel vali-
+dation set as a function of the
+different layers. Pixel groups:
+Noisy : with EP E > 3 in the
+input matches; Occluded: ap-
+pear only in one of the image
+pair; Missing: missing in the in-
+put matches but not occluded.
+Figure 3: The contribution of different losses.
+of the area, almost extinguishing the false matches (notice
+the shrinking ”bubble” in the LDL maps in Fig. 3a rows
+Input
+Sparse map + mask
+Sparse map + mask + edges map
+Table 2: Comparison of the network results with and with-
+out the edges as input. The reported EPE is for the Sintel
+’ﬁnal’ pass validation set. The network is trained on the
+FlowFields algorithm output.
+pre-training
+Evaluated
+Fine tuned on
+Self
+2-5). The network without the LD loss does not use this
+information and leaves a high contrast where it should not
+appear (Fig. 3a last row). LD loss mostly enforces smooth-
+ness in the outcome (Fig. 3b ﬁrst row), but it also encour-
+ages high contrasts where they should appear, as shown in
+the example in Figure 3b (second row) for the wings of the
+small dragon. In rear cases, the LD loss combined with a
+poor input could decrease performance like in the third row
+of Figure 3b where the smooth transition introduced by the
+LD loss decreased the performance. Overall, the LD loss
+improves the EPE in 60% of predictions in our validation
+set, and 80% out of the noisy examples in the set (those
+with over one percent of noisy and missing pixels).
+4.3. The importance of the edges
+To validate the importance of the edges as an input to
+the network, we perform an experiment in which the edges
+are not fed into the network (in both train and test time).
+Table 2 shows the signiﬁcant impact the edges input has
+on the performance of the network. Much like neuronal
+ﬁlling-in in the visual cortex, our network uses the edges
+as a boundary for local spread in missing or occluded areas.
+Figure 4a shows a comparison between the prediction of the
+two networks (with and without the edges input) for two
+examples from the Sintel validation set. Notice the spread
+into the missing pixels, while the network without the edges
+input performs what seems like a simple interpolation from
+all of the surroundings, the network with the edges input
+uses this information and stops the spread at the edges.
+To quantify the effect of the edges on the missing and
+occluded pixels, we deﬁne an improvement index (II):
+EP Ep−noedges − EP Ep−edges
+EP Ep−noedges + EP Ep−edges
+where EP Ep−noedges and EP Ep−edges are the EPE in
+pixel p between the prediction of the edges network and
+non-edges network respectively. Positive values of this in-
+dex indicate improvement as a result of the edges input,
+while negative values indicate a decrease in performance.
+Mean II over occluded and missing pixels is signiﬁcantly
+higher than the mean II over the non-missing pixels in
+the Sintel validation set (M ean ± SEM II difference =
+0.0235 ± 5.83 × 10−3 ;paired t-test p < 1 × 10−4 ;n=167).
+Table 3: The network performance (EPE) without ﬁne tun-
+ing, with FlowFields ﬁne tuning and with ﬁne tuning for the
+speciﬁc matching algorithm used for evaluation. EPE is re-
+ported for the Sintel ’ﬁnal’ pass validation set. Notations:
+fc - Flying Chairs, FF -FlowFields [2], CPM - CPM Flow
+[14], DM - DeepMatching [41], DF - DiscreteFlow [27]
+Interestingly, as demonstrated in Figure 4b, the contribu-
+tion of the edges input to the performance in the occluded
+and missing areas is not inﬂuenced by the distance from
+the edges. This is expected, since the decision about the
+spread is dependent on the segmentation by the edges and,
+therefore, even far away from the edges the effect is consid-
+erable (see top right corner in our prediction in the ﬁrst row
+of Fig. 5 as an example). For non-missing pixels, however,
+the performance gains decrease almost monotonically with
+the distance from the edges (green line in Fig. 4b). These
+pixels are processed differently in the network, since they
+have initial values. They are more affected by their imme-
+diate surroundings. Therefore, a nearby edge can improve
+their prediction but less so far from edges. In all distances,
+the II values are signiﬁcantly higher for the missing and oc-
+cluded pixels (Wilcoxon signed rank test p < 0.05).
+Our network is trained in two phases. First, it is pre-
+trained on the ﬂying chairs dataset using the FlowFields
+matching algorithm followed by ﬁne tuning to the speciﬁc
+dataset and matching algorithm at hand. Table 3 shows
+the performance of the networks trained only on the ﬂy-
+ing chairs dataset, compared to the networks ﬁne tuned on
+the Sintel training set with either the FlowFields matching
+algorithm or the same matching algorithms used for evalu-
+ation. The network performance is quite good even without
+ﬁne tuning. However, the ﬁne tuning phase still improves
+the performance by a considerable margin. Fine tuning on
+FlowFields applied to Sintel yields results comparable to
+ﬁne tuning on the evaluation algorithm. Finally, using a
+different matching algorithm for pre-training (DeepMatch-
+ing, last line in table 3) does not improve the results. We,
+therefore, suggest the best practice for incorporating new
+matching algorithms with our method as follows: For most
+cases using the network trained and ﬁne tuned on Flow-
+Fields as an out-of-the-box solution should be sufﬁcient.
+Figure 4: The contribution of the edges input to the network. (a) The predictions of the networks with and without the edges
+input. Edges are marked with black lines. (b) Mean improvement index over missing (blue) and non-missing (green) pixels.
+Shaded areas marks ± SEM over image pairs in the Sintel validation set.
+Table 4: Leading results for the Sintel benchmark using the
+’ﬁnal’ rendering pass. EPE-noc and EPE-occ are the EPE
+in non-occluded and occluded pixels respectively.
+For improved results, we suggest ﬁne tuning on the speciﬁc
+dataset and matching algorithm. Pre-training on the speciﬁc
+matching algorithm applied to the ﬂying chairs dataset is not
+necessary, although it could be beneﬁcial in some cases.
+4.5. Benchmarks results
+We applied our method to the output of several of the
+leading matching algorithms for Sintel and KITTI. The cho-
+sen matching algorithms are the highest on the leaderboards
+that have an available code and a reasonable running time.
+We used FlowField [2], DiscreteFlow [27] and CPM-Flow
+[14]. We also used DeepMatching, since it was used in the
+original EpicFlow paper [33].
+For Sintel (Table 4), we achieve state of the art results
+using FlowFields as the matching algorithm. For all the
+matching algorithms used, we achieve better results com-
+Method
+Table 5: KITTI 2012 and KITTI 2015 benchmarks results.
+The %Out is the percentage of outlier pixels as deﬁned by
+the benchmarks. FF does not have results on KITTI2015.
+pared to EpicFlow improving the EPE by an average of
+0.3px. Our performance is better in most areas including
+occluded, non-occluded and pixels in different distances
+from occlusion boundaries (with the exception of occluded
+pixels in CPM-ﬂow and discrete ﬂow). Figure 5 shows a
+comparison of EpicFlow’s and our outputs on several sparse
+ﬂow maps produced by FlowFields for the Sintel validation
+set. Notice the performance difference in missing areas with
+noise (top right corner in the ﬁrst row, the hand in the third
+and bottom right in the last row). Due to its non-learning
+nature, EpicFlow is clinging to any information that it ﬁnds
+within a segmented area and is, therefore, prone to fail in
+such regions. The ﬂexibility of a data-driven algorithm, like
+ours, is more suitable here. Further analysis demonstrated
+the superior performance of our method over EpicFlow in
+different regions (see supplementary). Based on our results,
+we believe that applying our method to a matching algo-
+rithm ranked higher than FlowFields (ranked 7 before our
+contribution) should yield even better results.
+For KITTI 2012 [12], using DiscreteFlow [27] as the
+baseline matching algorithm, we achieve state-of-the-art
+results out of the published, pure optical ﬂow methods,
+excluding semantic segmentation methods. We have the
+best performance, both in terms of EPE and the percent-
+age outlier for non-occluded pixels (Table 5). Compared to
+Figure 5: A comparison of the predictions of our network to EpicFlow.
+EpicFlow, the EPE is improved by a margin (21%–33%),
+using all matching algorithms. The %Out measurement
+used in the KITTI datasets, calculates the percentage of pix-
+els with EP E > 3. It is not linearly correlated with the
+EPE which we use as the target measurement, as reﬂected
+from the network’s loss function. Consequently, while this
+measurement was improved for non-occluded pixels (3%–
+25%) we achieved mixed results for all pixels (-6%–+15%;
+Table 5). Our results for KITTI 2015 [26], which uses only
+the %Out as the evaluation system, were also mixed (Table
+5). The EPE measurement is not available in this bench-
+mark, but our KITTI 2012 results support the possibility of
+an improvement in the EPE that is not reﬂected in the %Out.
+The results for our validation set were better than EpicFlow
+using all the matching algorithms (see supplementary).
+4.6. Runtime analysis
+Table 6 shows the runtime of the different compo-
+nents of our algorithm computed for one Sintel image pair
+(1024x436 pixels). The network inference ran on one
+NVIDIA GTX Titan black GPU (6GB RAM) while the
+other steps were performed on a single 3.4GHz CPU core.
+The run time of the edges detection and variational post-
+processing is as reported in [33]. The entire runtime was
+1.333 seconds. This is slightly better than the reported run-
+time for EpicFlow (1.4 seconds). Notably, several parts
+in the pipeline could be dropped for better runtime with-
+out a big decrease in performance. The bi-directional aver-
+age can be dropped in inference time (which will also re-
+duce the downsampling by half), as well as the variational
+post processing, leaving the edges detection as the biggest
+bottleneck. Therefore, without much performance loss, our
+method can be as fast as 5 fps. Combined with a fast edge
+detection and matching algorithm, future work can produce
+a real-time optical ﬂow algorithm.
+Step
+Downsampling
+Bi-directional average
+Edges detection
+Network inference
+Upsampling
+Variational post proc.
+Total
+runtime (sec)
+6:
+Table
+Runtime
+of
+various steps
+of our solu-
+an
+tion
+image
+pair
+in the Sintel
+dataset.
+for
+5. Conclusions
+Using a fully convolutional neural network, we have pre-
+sented a data-driven solution for sparse-to-dense interpola-
+tion for optical ﬂow producing state-of-the-art results. Our
+solution was inspired by ideas taken from interpolation pro-
+cesses in the visual cortex. We embedded anatomical fea-
+tures, like lateral dependency and multi-layer processing, by
+using the loss function, thereby applying supervision rather
+than using the architecture of the network which contributes
+to the simplicity of our solution. We also showed that the
+edge information is crucial for learning to interpolate. The
+network learns to use the edges as stoppers for the spread of
+interpolation, much like in the visual cortex.
+Our solution is robust and can be applied to the output of
+different matching algorithms and our code and models will
+be made completely public. We encourage new solutions to
+use our method as part of their pipeline.
+6. Acknowledgments
+This research is supported by the Intel Collaborative Re-
+search Institute for Computational Intelligence (ICRI-CI)
+and by the Israeli Ministry of Science, Technology, and
+Space.
+[4] Q. Chen and V. Koltun. Full Flow: Optical Flow Esti-
+mation By Global Optimization over Regular Grids. 2016
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion (CVPR), 2016. 2, 7
+[12] A. Geiger, P. Lenz, and R. Urtasun. Are we ready for Au-
+tonomous Driving? The KITTI Vision Benchmark Suite.
+In Conference on Computer Vision and Pattern Recognition
+(CVPR), 2012. 4, 7
+Joint Optical Flow and Temporally
+Consistent Semantic Segmentation. CVRSUAD workshop at
+ECCV, 2016. 2
+[19] R. K¨ohler, C. Schuler, B. Sch¨olkopf, and S. Harmeling.
+Mask-speciﬁc inpainting with deep neural networks. In Lec-
+ture Notes in Computer Science (including subseries Lecture
+Notes in Artiﬁcial Intelligence and Lecture Notes in Bioin-
+formatics), volume 8753, pages 523–534, 2014. 3
+[28] M. Paradiso and K. Nakayama. Brightness perception and
+[38] R. von der Heydt, H. S. Friedman, and H. Zhou. Search-
+ing for the neural mechanisms of color ﬁlling-in. In Filling-
+in: From perceptual completion to cortical reorganization,
+pages 106–127. Oxford University Press, Oxford, 2003. 2
