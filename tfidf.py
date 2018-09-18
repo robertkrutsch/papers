@@ -13,11 +13,11 @@ import pickle
 from random import shuffle, seed
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
-
+from utils import Config
 
 ##INPUTS TO THE CODE
-dataset_dir = "/media/robert/Data/work/papers/dataset"
-tfidf_path = dataset_dir + '/tfidf.db'
+dataset_dir = Config.dataset_dir
+tfidf_path = dataset_dir + 'tfidf.db'
 
 txt_paths = []
 max_features = 5000
@@ -38,7 +38,7 @@ def get_filepaths(directory):
         for filename in files:
             # Join the two strings in order to form the full filepath.
             if filename.find('.pdf.txt') > 0 : # get only the png files
-	      filepath = os.path.join(root, filename)
+              filepath = os.path.join(root, filename)
               file_paths.append(filepath)  # Add it to the list.
 
     return file_paths  # Self-explanatory.

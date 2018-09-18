@@ -22,10 +22,11 @@ from pdfminer.converter import PDFPageAggregator
 from utils import Config, get_pdf_filepaths
 
 
+
 def extract_txt(pdf_file):
     """
   This function uses PDFMiner library to parse the pdf and get the text.
-  We are making sure that the line read has more letters than other junky characters. This avoids all sorts of tables abd arxive markings that are not needed.  
+  We are making sure that the line read has more letters than other junky characters. This avoids all sorts of tables abd arxive markings that are not needed.
   """
 
     txt_file = pdf_file + '.txt'
