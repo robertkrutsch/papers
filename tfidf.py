@@ -17,7 +17,9 @@ from utils import Config
 
 ##INPUTS TO THE CODE
 dataset_dir = Config.dataset_dir
-tfidf_path = dataset_dir + 'tfidf.db'
+tfidf_path    = Config.tfidf_path
+filelist_path = Config.filelist_path
+
 
 txt_paths = []
 max_features = 5000
@@ -43,9 +45,13 @@ def get_filepaths(directory):
 
     return file_paths  # Self-explanatory.
   
-def save_features(obj, fname):
-    with open(fname, 'wb') as f:
-      pickle.dump(obj, f, -1)
+def save_data(features,file_list,fname_features,fname_filelist):
+    with open(fname_features, 'wb') as f:
+      pickle.dump(features, f, -1)
+
+    with open(fname_filelist, 'wb') as f:
+      pickle.dump(file_list, f, -1)
+
 
 # create an iterator object to conserve memory
 def make_corpus(paths):
@@ -76,8 +82,8 @@ X = v.transform(corpus)
 #print(v.vocabulary_)
 print(X.shape)
 
-# write full matrix out
+# write full matrix out and write also the file list
 out = {}
 out['X'] = X # this one is heavy!
-print("writing", tfidf_path)
-save_features(out, tfidf_path)
+print("writing", tfidf_path,filelist_path)
+save_data(out,txt_paths, tfidf_path,filelist_path)

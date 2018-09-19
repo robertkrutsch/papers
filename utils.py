@@ -9,6 +9,8 @@ class Config(object):
     xplorer_save_dir = "dataset_ieee/"  # here we save all the papers from xplore
 
     tfidf_path = dataset_dir + '/tfidf.db' #tfidf features are writen here
+    filelist_path = dataset_dir + 'file_list.db'
+
     max_features = 5000 #this is the max number of features we want to creat with scikit
     overwrite_txt = 1 #overwrite the text files already existing when transforming pdf2txt (1,0)
 
