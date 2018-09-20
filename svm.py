@@ -43,6 +43,7 @@ def check_file_esist(tfidf_path,filelist_path):
         print("You need to run tfidf first to produce the features!")
         sys.exit()
 
+len_usr = []
 for i in range(1, Config.nr_users + 1, 1):
     usr_dir = Config.dataset_dir + "train/usr" + str(i)
     tfidf_path = usr_dir + Config.tfidf_path
@@ -53,8 +54,13 @@ for i in range(1, Config.nr_users + 1, 1):
     filelist = pickle.load(open(filelist_path, 'rb'))
     #load the features
     out = pickle.load(open(tfidf_path, 'rb'))
-    X = out['X']
-    X = X.todense()
+    tmp = out['X']
+    tmp = tmp.todense()
+    len_usr.append(tmp.shape[0])
+    X = np.concatenate((tmp, tmp), axis=0)
+
+for i in range(1, Config.nr_users + 1, 1):
+    y = np.zeros(X.shape[0])
 
 
 

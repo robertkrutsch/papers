@@ -54,7 +54,7 @@ def make_corpus(paths):
   for p in paths:
     with open(p, 'r') as f:
       txt = f.read()
-  yield txt
+    yield txt
 
 
 #learn how to build the tfidf features from the training data
