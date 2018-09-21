@@ -74,7 +74,32 @@ v.fit(train_corpus)
 
 #for all users parse the files and generate the tfidf features and write them in that directory
 for i in range(1, Config.nr_users + 1, 1):
+    """
+        First generate the features for the training data.
+    """
+    print("Training dataset...")
     usr_dir = Config.dataset_dir + "train/usr" + str(i)
+    tfidf_path = usr_dir + Config.tfidf_path
+    filelist_path = usr_dir + Config.filelist_path
+    txt_paths = []
+    txt_paths = get_filepaths(usr_dir)
+
+    # transform
+    print("transforming %d documents..." % (len(txt_paths), ))
+    corpus = make_corpus(txt_paths)
+    X = v.transform(corpus)
+    print(X.shape)
+
+    # write full matrix out and write also the file list
+    out = {}
+    out['X'] = X # this one is heavy!
+    print("writing", tfidf_path,filelist_path)
+    save_data(out,txt_paths, tfidf_path,filelist_path)
+    """
+        Second generate the features for the validation data.
+    """
+    print("Validation dataset...")
+    usr_dir = Config.dataset_dir + "valid/usr" + str(i)
     tfidf_path = usr_dir + Config.tfidf_path
     filelist_path = usr_dir + Config.filelist_path
     txt_paths = []
